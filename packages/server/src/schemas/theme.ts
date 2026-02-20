@@ -1,4 +1,4 @@
-import { z } from "zod"
+import { z } from 'zod'
 
 export const ThemeColorsSchema = z.object({
   canvas: z.string().min(1),
@@ -29,24 +29,9 @@ export const ThemeSchema = z.object({
   version: z.string().min(1),
   updatedAt: z.string().min(1).optional(),
   createdBy: z.string().min(1),
-  visibility: z.enum(["public", "private"]),
+  visibility: z.enum(['public', 'private']),
   modes: z.object({
     light: ThemeColorsSchema,
     dark: ThemeColorsSchema,
   }),
 })
-
-export const ThemeRegistryEntrySchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  version: z.string().min(1),
-  r2Key: z.string().min(1),
-  isDefault: z.boolean(),
-  updatedAt: z.number().int().nonnegative(),
-  createdBy: z.string().min(1),
-  visibility: z.enum(["public", "private"]),
-})
-
-export type ThemeColors = z.infer<typeof ThemeColorsSchema>
-export type Theme = z.infer<typeof ThemeSchema>
-export type ThemeRegistryEntry = z.infer<typeof ThemeRegistryEntrySchema>

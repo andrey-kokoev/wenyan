@@ -3,6 +3,8 @@
   "name": "Default",
   "version": "1.0.0",
   "updatedAt": "2026-02-02",
+  "createdBy": "system",
+  "visibility": "public",
   "modes": {
     "light": {
       "canvas": "#f9f7f3",

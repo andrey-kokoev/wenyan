@@ -4,8 +4,7 @@ import { spawnSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
 const root = resolve(import.meta.dirname, "..")
-const sharedRoot = resolve(root, "../shared")
-const distSchemaPath = resolve(sharedRoot, "dist/schemas/theme.js")
+const distSchemaPath = resolve(root, "dist/schemas/theme.js")
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: "inherit" })
@@ -15,7 +14,7 @@ function run(command, args) {
 }
 
 if (!existsSync(distSchemaPath)) {
-  run("pnpm", ["-C", sharedRoot, "build"])
+  run("pnpm", ["-C", root, "build"])
 }
 
 const { ThemeSchema } = await import(pathToFileURL(distSchemaPath).href)
@@ -33,7 +32,7 @@ const themeFiles = [
 
 console.log("Validating theme JSON...")
 for (const theme of themeFiles) {
-  const themePath = resolve(sharedRoot, `themes/${theme.id}.json`)
+  const themePath = resolve(root, `themes/${theme.id}.json`)
   const raw = readFileSync(themePath, "utf-8")
   const parsed = ThemeSchema.safeParse(JSON.parse(raw))
   if (!parsed.success) {
@@ -57,7 +56,7 @@ const insertSql =
 function seed(envLabel, flags) {
   console.log(`Uploading themes to R2 (${envLabel})...`)
   for (const theme of themeFiles) {
-    const themePath = resolve(sharedRoot, `themes/${theme.id}.json`)
+    const themePath = resolve(root, `themes/${theme.id}.json`)
     const putArgs = [
       "r2",
       "object",

@@ -9,9 +9,7 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
-    },
-    "./themes/default.json": "./themes/default.json",
-    "./themes/barry.json": "./themes/barry.json"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -7,9 +7,10 @@ import type { Context } from "hono"
 import { drizzle } from "drizzle-orm/d1"
 import { eq } from "drizzle-orm"
 import { zValidator } from "@hono/zod-validator"
-import { ThemeSchema, isAdmin, isDeveloper } from "@wenyan/shared"
+import { isAdmin, isDeveloper } from "@wenyan/shared"
 import type { Bindings, Variables } from "../../../types/env"
 import { themes } from "../../../database/workspaces/schema"
+import { ThemeSchema } from "../../../schemas/theme"
 
 const updateThemeSchema = ThemeSchema
 
