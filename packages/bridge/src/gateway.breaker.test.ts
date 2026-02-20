@@ -72,6 +72,7 @@ describe('bridge circuit breaker', () => {
       markBridgeOutboundResult: async (id: number, status: string, err?: string) => {
         marks.push({ id, status, err })
       },
+      appendBridgeDeadLetter: async () => {},
     } as unknown as ArchiveRepository
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {

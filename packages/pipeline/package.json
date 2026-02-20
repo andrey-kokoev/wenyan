@@ -33,6 +33,7 @@
     "@wenyan/actor": "workspace:*",
     "@wenyan/archive": "workspace:*",
     "@wenyan/core": "workspace:*",
+    "@wenyan/imperial-works": "workspace:*",
     "@wenyan/seal": "workspace:*"
   },
   "devDependencies": {

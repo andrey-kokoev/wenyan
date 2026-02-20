@@ -1,0 +1,25 @@
+services:
+  emperor:
+    image: node:20
+    command: ["sleep", "infinity"]
+  minister_works:
+    image: node:20
+    command: ["sleep", "infinity"]
+  minister_finance:
+    image: node:20
+    command: ["sleep", "infinity"]
+  censor_chief:
+    image: node:20
+    command: ["sleep", "infinity"]
+  foreman_electrical:
+    image: node:20
+    command: ["sleep", "infinity"]
+  foreman_structural:
+    image: node:20
+    command: ["sleep", "infinity"]
+  foreman_hydraulic:
+    image: node:20
+    command: ["sleep", "infinity"]
+  worker_gateway:
+    image: node:20
+    command: ["sleep", "infinity"]

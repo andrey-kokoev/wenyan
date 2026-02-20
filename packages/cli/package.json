@@ -37,6 +37,8 @@
     "@wenyan/bridge": "workspace:*",
     "@wenyan/channel": "workspace:*",
     "@wenyan/core": "workspace:*",
+    "@wenyan/imperial-works": "workspace:*",
+    "@wenyan/mobile-foreman": "workspace:*",
     "@wenyan/genesis": "workspace:*"
   },
   "devDependencies": {

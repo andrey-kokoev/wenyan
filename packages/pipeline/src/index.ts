@@ -1,5 +1,6 @@
 import { allowedGenresForRole, canAuthorize, canReview } from '@wenyan/actor'
 import type { ArchiveRepository } from '@wenyan/archive'
+import { canAuthorizeGenre, canDraftGenre, canReviewGenre, isImperialWorksGenre } from '@wenyan/imperial-works'
 import {
   AppointmentLawContentSchema,
   ClassificationLawContentSchema,
@@ -177,6 +178,9 @@ export function shenfu(message: MessageEnvelope): { ok: true } | { ok: false; re
   if (Object.keys(message.payload).length === 0) {
     return { ok: false, reason: 'empty-payload' }
   }
+  if (isImperialWorksGenre(message.genre) && !canDraftGenre(message.actor.role, message.genre)) {
+    return { ok: false, reason: 'hierarchy_violation' }
+  }
   return { ok: true }
 }
 
@@ -283,6 +287,9 @@ async function reviewByLaw(
   if (!canReview(message.actor.role, appointmentLaw)) {
     return { ok: false, reason: 'actor-cannot-review' }
   }
+  if (isImperialWorksGenre(message.genre) && !canReviewGenre(message.actor.role, message.genre)) {
+    return { ok: false, reason: 'hierarchy_violation' }
+  }
   if (!appointmentAllowsGenre(message, appointmentLaw)) {
     return { ok: false, reason: 'genre-not-allowed-for-role' }
   }
@@ -310,6 +317,9 @@ async function authorizeByLaw(
 
   if (!canAuthorize(message.actor.role, law.content)) {
     return { ok: false, reason: 'actor-cannot-authorize' }
+  }
+  if (isImperialWorksGenre(message.genre) && !canAuthorizeGenre(message.actor.role, message.genre)) {
+    return { ok: false, reason: 'hierarchy_violation' }
   }
   return { ok: true }
 }

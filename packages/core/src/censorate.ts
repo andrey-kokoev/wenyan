@@ -24,7 +24,16 @@ export const AuditQuerySchema = z.object({
 export const AnomalySeveritySchema = z.enum(['info', 'warning', 'critical'])
 
 export const AnomalyRuleSchema = z.object({
-  type: z.enum(['velocity', 'temporal_anomaly', 'geographic_impossibility', 'coalition']),
+  type: z.enum([
+    'velocity',
+    'temporal_anomaly',
+    'geographic_impossibility',
+    'coalition',
+    'ghost_worker',
+    'material_diversion',
+    'schedule_impossible',
+    'structural_cabal',
+  ]),
   threshold: z.number().positive(),
   windowSeconds: z.number().int().positive().default(60),
   enabled: z.boolean().default(true),

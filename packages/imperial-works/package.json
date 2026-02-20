@@ -1,6 +1,6 @@
 {
-  "name": "@wenyan/gateway",
-  "version": "0.6.0",
+  "name": "@wenyan/imperial-works",
+  "version": "0.7.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,38 +10,23 @@
       "import": "./dist/index.js"
     }
   },
-  "files": [
-    "dist/**/*",
-    "README.md"
-  ],
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
+  "files": ["dist/**/*", "README.md"],
+  "publishConfig": { "registry": "https://npm.pkg.github.com" },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andrey-kokoev/wenyan.git",
-    "directory": "packages/gateway"
-  },
-  "bin": {
-    "tongzheng-si": "dist/server.js"
+    "directory": "packages/imperial-works"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src --passWithNoTests",
+    "test": "vitest run src",
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.8",
     "@wenyan/archive": "workspace:*",
-    "@wenyan/censorate": "workspace:*",
-    "@wenyan/channel": "workspace:*",
-    "@wenyan/core": "workspace:*",
-    "@wenyan/imperial-works": "workspace:*",
-    "@wenyan/pipeline": "workspace:*",
-    "@wenyan/seal": "workspace:*",
-    "hono": "^4.11.7"
+    "@wenyan/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",

@@ -46,7 +46,7 @@ export interface GossipLogEntry {
 export interface ForeignSyncStateRecord {
   documentId: string
   adapterId: string
-  adapterProtocol: 'nats' | 'kafka' | 'mqtt'
+  adapterProtocol: 'nats' | 'kafka' | 'mqtt' | 'erp' | 'payroll' | 'regulatory'
   foreignId: string
   foreignVectorClockJson?: string
   lastSyncAt: string
@@ -71,6 +71,19 @@ export interface BridgeOutboundQueueItem {
   availableAt: string
   lastError?: string
   status: 'queued' | 'sending' | 'failed' | 'sent'
+}
+
+export type SiteStatus = 'ACTIVE' | 'QUARANTINED' | 'RESUMED'
+
+export interface BridgeDeadLetterRecord {
+  id?: number
+  adapterId: string
+  messageId?: string
+  payloadJson: string
+  reason: string
+  attempts: number
+  nextRetryAt: string
+  createdAt: string
 }
 
 export interface CensorateAlertRecord {
@@ -125,6 +138,11 @@ export interface ArchiveRepository {
   enqueueBridgeOutbound(adapterId: string, messageId: string, availableAt: string): void | Promise<void>
   dequeueBridgeOutbound(nowIso: string, limit: number): BridgeOutboundQueueItem[] | Promise<BridgeOutboundQueueItem[]>
   markBridgeOutboundResult(id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): void | Promise<void>
+  setSiteStatus(status: SiteStatus, reason?: string): void | Promise<void>
+  getSiteStatus(): SiteStatus | Promise<SiteStatus>
+  appendBridgeDeadLetter(entry: BridgeDeadLetterRecord): void | Promise<void>
+  dequeueBridgeDeadLetter(nowIso: string, limit: number): BridgeDeadLetterRecord[] | Promise<BridgeDeadLetterRecord[]>
+  markBridgeDeadLetterResult(id: number, success: boolean, nextRetryAt?: string, reason?: string): void | Promise<void>
   appendSeal0Receipt(receipt: Seal0Receipt): void | Promise<void>
   querySeal0ByDocument(
     documentId: string,

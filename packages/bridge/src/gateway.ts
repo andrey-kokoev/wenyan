@@ -4,6 +4,9 @@ import type { BootstrapConfig, BridgeAdapterConfig, BridgeProtocol, MessageEnvel
 import { KafkaBridgeAdapter } from './adapters/kafka'
 import { MqttBridgeAdapter } from './adapters/mqtt'
 import { NatsBridgeAdapter } from './adapters/nats'
+import { ErpBridgeAdapter } from './adapters/erp-http'
+import { PayrollBridgeAdapter } from './adapters/payroll-http'
+import { RegulatoryBridgeAdapter } from './adapters/regulatory-mqtt'
 import type { AdapterContext, BridgeAdapter, BridgeMetrics, ForeignMetadata } from './types'
 
 interface BreakerState {
@@ -173,7 +176,17 @@ export class BridgeGateway {
         this.recordSuccess(adapter.id)
         pushed += 1
       } catch (err) {
-        await this.archive.markBridgeOutboundResult(item.id, 'failed', err instanceof Error ? err.message : 'publish-failed')
+        const reason = err instanceof Error ? err.message : 'publish-failed'
+        await this.archive.markBridgeOutboundResult(item.id, 'failed', reason)
+        await this.archive.appendBridgeDeadLetter({
+          adapterId: item.adapterId,
+          messageId: item.messageId,
+          payloadJson: JSON.stringify({ messageId: item.messageId, adapterId: item.adapterId }),
+          reason,
+          attempts: item.attempts + 1,
+          nextRetryAt: new Date(Date.now() + this.config.bridge.circuit_breaker.cool_down_ms).toISOString(),
+          createdAt: nowIso(),
+        })
         this.recordFailure(adapter.id)
       }
     }
@@ -258,7 +271,10 @@ export class BridgeGateway {
   private createAdapter(config: BridgeAdapterConfig): BridgeAdapter {
     if (config.protocol === 'nats') return new NatsBridgeAdapter(config)
     if (config.protocol === 'kafka') return new KafkaBridgeAdapter(config)
-    return new MqttBridgeAdapter(config)
+    if (config.protocol === 'mqtt') return new MqttBridgeAdapter(config)
+    if (config.protocol === 'erp') return new ErpBridgeAdapter(config)
+    if (config.protocol === 'payroll') return new PayrollBridgeAdapter(config)
+    return new RegulatoryBridgeAdapter(config)
   }
 
   private createArchiveFromBootstrap(config: BootstrapConfig): ArchiveRepository {
@@ -272,27 +288,36 @@ export class BridgeGateway {
   }
 
   private async captureOutboundEvents(): Promise<void> {
-    const res = await fetch(`${this.apiBaseUrl}/stream?since=${encodeURIComponent(this.lastStreamAt)}`)
-    if (!res.ok) return
-    const body = (await res.json()) as { events?: Array<{ at: string; type: string; messageId: string }> }
-    const events = body.events ?? []
-    for (const event of events) {
-      this.lastStreamAt = event.at
-      if (event.type !== 'archive.appended' && event.type !== 'transition.committed') continue
-      const message = await this.fetchMessage(event.messageId)
-      if (!message) continue
-      for (const adapter of this.adapters) {
-        if (!matchesRoutingTarget(message, adapter)) continue
-        await this.archive.enqueueBridgeOutbound(adapter.id, event.messageId, nowIso())
+    try {
+      const res = await fetch(`${this.apiBaseUrl}/stream?since=${encodeURIComponent(this.lastStreamAt)}`)
+      if (!res.ok) return
+      const body = (await res.json()) as { events?: Array<{ at: string; type: string; messageId: string }> }
+      const events = body.events ?? []
+      for (const event of events) {
+        this.lastStreamAt = event.at
+        if (event.type !== 'archive.appended' && event.type !== 'transition.committed') continue
+        const message = await this.fetchMessage(event.messageId)
+        if (!message) continue
+        for (const adapter of this.adapters) {
+          if (!matchesRoutingTarget(message, adapter)) continue
+          await this.archive.enqueueBridgeOutbound(adapter.id, event.messageId, nowIso())
+        }
       }
+    } catch {
+      // Stream endpoint may be temporarily unavailable in standalone bridge mode.
+      // Outbound sync will retry on the next polling cycle.
     }
   }
 
   private async fetchMessage(id: string): Promise<MessageEnvelope | undefined> {
-    const res = await fetch(`${this.apiBaseUrl}/messages/${id}`)
-    if (!res.ok) return undefined
-    const json = (await res.json()) as { message?: MessageEnvelope }
-    return json.message
+    try {
+      const res = await fetch(`${this.apiBaseUrl}/messages/${id}`)
+      if (!res.ok) return undefined
+      const json = (await res.json()) as { message?: MessageEnvelope }
+      return json.message
+    } catch {
+      return undefined
+    }
   }
 
   private recordSuccess(adapterId: string): void {

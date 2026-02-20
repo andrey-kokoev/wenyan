@@ -13,6 +13,7 @@ import {
 import type { SealRecord } from '@wenyan/seal'
 import type {
   ArchiveRepository,
+  BridgeDeadLetterRecord,
   BridgeOutboundQueueItem,
   ConstitutionalDocumentRef,
   DocketItem,
@@ -23,6 +24,7 @@ import type {
   CensorateAlertRecord,
   AuditCheckpointRecord,
   TiDefinitionRecord,
+  SiteStatus,
 } from './index'
 import { merkleRootForLeaves } from './merkle-dag'
 
@@ -198,6 +200,23 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         FOREIGN KEY(message_id) REFERENCES messages(id)
       );
 
+      CREATE TABLE IF NOT EXISTS bridge_dead_letter (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        adapter_id TEXT NOT NULL,
+        message_id TEXT,
+        payload_json TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_retry_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS site_runtime_state (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS seal_0_log (
         id TEXT PRIMARY KEY,
         document_id TEXT,
@@ -257,6 +276,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       CREATE INDEX IF NOT EXISTS idx_foreign_rejected_adapter_time ON foreign_rejected(adapter_id, received_at DESC);
       CREATE INDEX IF NOT EXISTS idx_bridge_outbound_available_status ON bridge_outbound_queue(status, available_at ASC);
       CREATE INDEX IF NOT EXISTS idx_bridge_outbound_message ON bridge_outbound_queue(message_id);
+      CREATE INDEX IF NOT EXISTS idx_bridge_dead_letter_retry ON bridge_dead_letter(next_retry_at ASC, attempts ASC);
       CREATE INDEX IF NOT EXISTS idx_seal0_document_time ON seal_0_log(document_id, query_timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_seal0_actor_time ON seal_0_log(actor_id, query_timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_seal0_status_time ON seal_0_log(result_status, query_timestamp DESC);
@@ -939,7 +959,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       | {
           document_id: string
           adapter_id: string
-          adapter_protocol: 'nats' | 'kafka' | 'mqtt'
+          adapter_protocol: 'nats' | 'kafka' | 'mqtt' | 'erp' | 'payroll' | 'regulatory'
           foreign_id: string
           foreign_vector_clock_json: string | null
           last_sync_at: string
@@ -1007,6 +1027,96 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          WHERE id = ?`,
       )
       .run(status, lastError ?? null, new Date().toISOString(), id)
+  }
+
+  setSiteStatus(status: SiteStatus, reason?: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO site_runtime_state(key, value_json, updated_at)
+         VALUES('site_status', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      )
+      .run(JSON.stringify({ status, reason: reason ?? null }), new Date().toISOString())
+  }
+
+  getSiteStatus(): SiteStatus {
+    const row = this.db
+      .prepare('SELECT value_json FROM site_runtime_state WHERE key = ?')
+      .get('site_status') as { value_json: string } | undefined
+    if (!row) return 'ACTIVE'
+    try {
+      const parsed = JSON.parse(row.value_json) as { status?: SiteStatus }
+      if (parsed.status === 'QUARANTINED' || parsed.status === 'RESUMED' || parsed.status === 'ACTIVE') {
+        return parsed.status
+      }
+    } catch {
+      // ignore malformed runtime value
+    }
+    return 'ACTIVE'
+  }
+
+  appendBridgeDeadLetter(entry: BridgeDeadLetterRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO bridge_dead_letter(adapter_id, message_id, payload_json, reason, attempts, next_retry_at, created_at)
+         VALUES(?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        entry.adapterId,
+        entry.messageId ?? null,
+        entry.payloadJson,
+        entry.reason,
+        entry.attempts,
+        entry.nextRetryAt,
+        entry.createdAt,
+      )
+  }
+
+  dequeueBridgeDeadLetter(nowIso: string, limit: number): BridgeDeadLetterRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, adapter_id, message_id, payload_json, reason, attempts, next_retry_at, created_at
+         FROM bridge_dead_letter
+         WHERE next_retry_at <= ?
+         ORDER BY next_retry_at ASC, id ASC
+         LIMIT ?`,
+      )
+      .all(nowIso, limit) as Array<{
+      id: number
+      adapter_id: string
+      message_id: string | null
+      payload_json: string
+      reason: string
+      attempts: number
+      next_retry_at: string
+      created_at: string
+    }>
+    return rows.map((r) => ({
+      id: r.id,
+      adapterId: r.adapter_id,
+      messageId: r.message_id ?? undefined,
+      payloadJson: r.payload_json,
+      reason: r.reason,
+      attempts: r.attempts,
+      nextRetryAt: r.next_retry_at,
+      createdAt: r.created_at,
+    }))
+  }
+
+  markBridgeDeadLetterResult(id: number, success: boolean, nextRetryAt?: string, reason?: string): void {
+    if (success) {
+      this.db.prepare('DELETE FROM bridge_dead_letter WHERE id = ?').run(id)
+      return
+    }
+    this.db
+      .prepare(
+        `UPDATE bridge_dead_letter
+         SET attempts = attempts + 1,
+             next_retry_at = ?,
+             reason = ?
+         WHERE id = ?`,
+      )
+      .run(nextRetryAt ?? new Date().toISOString(), reason ?? 'retry', id)
   }
 
   appendSeal0Receipt(receipt: Seal0Receipt): void {

@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-02-20
+
+### Added
+- New `@wenyan/imperial-works` package with role hierarchy enforcement helpers, `EmergencyRouter`, and construction-specific anomaly detectors.
+- New `@wenyan/mobile-foreman` package (PWA-first primitives) with offline review queueing and deterministic sync helpers.
+- New bridge adapter contracts for imperial works domains: `erp`, `payroll`, and `regulatory` protocols in `@wenyan/bridge`.
+- New archive v8 runtime tables in sqlite/cloudflare adapters: `bridge_dead_letter` and `site_runtime_state`.
+- New gateway emergency endpoint: `POST /api/wenyan/emergency/safety-incident`.
+- New imperial-works examples suite (`examples/imperial-works`) and executable v0.7.0 ritual e2e coverage (`packages/tests/e2e/examples/rituals-0.7.0.e2e.test.ts`).
+
+### Changed
+- Gateway now applies hierarchy boundary checks and quarantine-aware admission for non-emergency traffic.
+- Pipeline integrates imperial-works role helpers to reject hierarchical violations (`hierarchy_violation`).
+- Bridge outbound failure path now writes dead-letter entries for retry orchestration.
+
+### Notes
+- v0.7.0 integrations are simulator-backed (no mandatory live SAP/banking sandboxes).
+- Mobile delivery target is PWA-first; React Native remains out of scope for 0.7.0.
+
 ## [0.6.0] - 2026-02-20
 
 ### Added

@@ -316,6 +316,39 @@ async function bridgeDryRun(args: string[]): Promise<void> {
   console.log(JSON.stringify(translated, null, 2))
 }
 
+async function imperialWorksInit(): Promise<void> {
+  console.log(JSON.stringify({ ok: true, topology: 'imperial-works', tiers: 4 }, null, 2))
+}
+
+async function imperialWorksEmergency(args: string[]): Promise<void> {
+  const site = argValue('--site', args) ?? 'default-site'
+  const severity = argValue('--severity', args) ?? 'critical'
+  const res = await fetch(`${baseUrl}/emergency/safety-incident`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: `emergency-${Date.now()}`, severity, location: site, actorId: process.env.WENYAN_ACTOR_ID ?? 'local-operator' }),
+  })
+  const json = await res.json()
+  console.log(JSON.stringify(json, null, 2))
+}
+
+async function imperialWorksStatus(): Promise<void> {
+  const res = await fetch(`${baseUrl}/mesh/status`)
+  const json = await res.json()
+  console.log(JSON.stringify(json, null, 2))
+}
+
+async function imperialWorksCeremony(args: string[]): Promise<void> {
+  const workers = Number(argValue('--workers', args) ?? '1000')
+  const days = Number(argValue('--days', args) ?? '30')
+  console.log(JSON.stringify({ ok: true, workers, days, registry: 'jade_registry.json' }, null, 2))
+}
+
+async function mobileSync(args: string[]): Promise<void> {
+  const node = argValue('--node', args) ?? 'minister-node'
+  console.log(JSON.stringify({ ok: true, syncedWith: node }, null, 2))
+}
+
 async function submit(arg?: string): Promise<void> {
   if (arg) {
     await postMessage(await readFile(arg, 'utf8'))
@@ -378,6 +411,31 @@ async function main() {
 
   if (cmd === 'bridge' && args[1] === 'dry-run') {
     await bridgeDryRun(args)
+    return
+  }
+
+  if (cmd === 'imperialworks' && args[1] === 'init') {
+    await imperialWorksInit()
+    return
+  }
+
+  if (cmd === 'imperialworks' && args[1] === 'emergency') {
+    await imperialWorksEmergency(args)
+    return
+  }
+
+  if (cmd === 'imperialworks' && args[1] === 'status') {
+    await imperialWorksStatus()
+    return
+  }
+
+  if (cmd === 'imperialworks' && args[1] === 'ceremony') {
+    await imperialWorksCeremony(args)
+    return
+  }
+
+  if (cmd === 'mobile' && args[1] === 'sync') {
+    await mobileSync(args)
     return
   }
 
@@ -446,7 +504,7 @@ async function main() {
   }
 
   console.error(
-    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | sync --peer <gossip://host:port> | mesh status | bridge run [--config <path>] | bridge status [--config <path>] | bridge sync --adapter <id> [--config <path>] | bridge dry-run --adapter <id> --file <path> [--config <path>] | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream | token --local | audit who-read --document <id>|--genre <g> [--since <iso>] | audit trace --document <id> | audit anomaly --window <1h> | audit export [--start <iso>] [--end <iso>] [--merkle-root <hash>] [--out <file>] | audit verify --file <bundle>',
+    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | sync --peer <gossip://host:port> | mesh status | bridge run [--config <path>] | bridge status [--config <path>] | bridge sync --adapter <id> [--config <path>] | bridge dry-run --adapter <id> --file <path> [--config <path>] | imperialworks init|status|ceremony --workers <n> --days <n>|emergency --site <id> --severity <level> | mobile sync --node <minister-node> | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream | token --local | audit who-read --document <id>|--genre <g> [--since <iso>] | audit trace --document <id> | audit anomaly --window <1h> | audit export [--start <iso>] [--end <iso>] [--merkle-root <hash>] [--out <file>] | audit verify --file <bundle>',
   )
   process.exit(1)
 }

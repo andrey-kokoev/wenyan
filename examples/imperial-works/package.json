@@ -1,0 +1,17 @@
+{
+  "name": "wenyan-example-imperial-works",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "imperial:init": "tsx src/topology.ts",
+    "imperial:ceremony": "tsx src/ceremony.ts",
+    "imperial:scenario": "tsx src/scenarios/grand-opening.ts"
+  },
+  "dependencies": {
+    "@wenyan/imperial-works": "workspace:*",
+    "@wenyan/mobile-foreman": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}

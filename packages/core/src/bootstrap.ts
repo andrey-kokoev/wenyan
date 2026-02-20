@@ -57,7 +57,7 @@ const SyncConfigSchema = z.object({
 })
 
 export const BridgeModeSchema = z.enum(['embedded', 'standalone'])
-export const BridgeProtocolSchema = z.enum(['nats', 'kafka', 'mqtt'])
+export const BridgeProtocolSchema = z.enum(['nats', 'kafka', 'mqtt', 'erp', 'payroll', 'regulatory'])
 export const BridgeSyncModeSchema = z.enum(['poll', 'push', 'hybrid'])
 export const BridgeMetadataModeSchema = z.enum(['strict', 'compat'])
 
@@ -90,10 +90,31 @@ const MqttBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
   qos: z.number().int().min(0).max(2).default(1),
 })
 
+const ErpBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
+  protocol: z.literal('erp'),
+  endpoint: z.string().url(),
+  path: z.string().min(1).default('/purchase-orders'),
+})
+
+const PayrollBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
+  protocol: z.literal('payroll'),
+  endpoint: z.string().url(),
+  webhook_path: z.string().min(1).default('/webhooks/payroll'),
+})
+
+const RegulatoryBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
+  protocol: z.literal('regulatory'),
+  url: z.string().min(1),
+  topic: z.string().min(1).default('regulatory/safety'),
+})
+
 export const BridgeAdapterConfigSchema = z.discriminatedUnion('protocol', [
   NatsBridgeAdapterConfigSchema,
   KafkaBridgeAdapterConfigSchema,
   MqttBridgeAdapterConfigSchema,
+  ErpBridgeAdapterConfigSchema,
+  PayrollBridgeAdapterConfigSchema,
+  RegulatoryBridgeAdapterConfigSchema,
 ])
 
 const BridgeSyncConfigSchema = z.object({
@@ -188,6 +209,9 @@ export type BridgeAdapterConfig = z.input<typeof BridgeAdapterConfigSchema>
 export type NatsBridgeAdapterConfig = z.input<typeof NatsBridgeAdapterConfigSchema>
 export type KafkaBridgeAdapterConfig = z.input<typeof KafkaBridgeAdapterConfigSchema>
 export type MqttBridgeAdapterConfig = z.input<typeof MqttBridgeAdapterConfigSchema>
+export type ErpBridgeAdapterConfig = z.input<typeof ErpBridgeAdapterConfigSchema>
+export type PayrollBridgeAdapterConfig = z.input<typeof PayrollBridgeAdapterConfigSchema>
+export type RegulatoryBridgeAdapterConfig = z.input<typeof RegulatoryBridgeAdapterConfigSchema>
 
 export function parseBootstrapConfigToml(text: string): BootstrapConfig {
   return BootstrapConfigSchema.parse(parseToml(text))

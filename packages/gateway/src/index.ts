@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { TiResolver, type ArchiveRepository } from '@wenyan/archive'
 import { constitutionalMerkleRoot, type ChannelEvent } from '@wenyan/channel'
+import { canDraftGenre, EmergencyRouter, isImperialWorksGenre } from '@wenyan/imperial-works'
 import {
   AccessControlLawContentSchema,
   AdmissionLawContentSchema,
@@ -233,8 +234,10 @@ export function buildGateway(
   let runtimeAudit: AuditService | undefined
   let runtimeCheckpoint: CheckpointService | undefined
   let runtimeAnomaly: AnomalyDetector | undefined
+  let runtimeEmergency: EmergencyRouter | undefined
   const recentSeal6ByActor = new Map<string, number[]>()
   const quarantinedActors = new Set<string>()
+  let constitutionalAmendmentInProgress = false
 
   async function resolveRuntime(): Promise<{
     repo: ArchiveRepository
@@ -244,6 +247,7 @@ export function buildGateway(
     audit: AuditService
     checkpoint: CheckpointService
     anomaly: AnomalyDetector
+    emergency: EmergencyRouter
   }> {
     const repo = await resolveRepo(repoFactory)
     if (!runtimeResolver || runtimeRepo !== repo) {
@@ -266,6 +270,7 @@ export function buildGateway(
       runtimeAudit = new AuditService(repo, runtimeSecret)
       runtimeCheckpoint = new CheckpointService(repo)
       runtimeAnomaly = new AnomalyDetector(repo)
+      runtimeEmergency = new EmergencyRouter(repo)
       await runtimeResolver.preload()
     }
     return {
@@ -276,6 +281,7 @@ export function buildGateway(
       audit: runtimeAudit!,
       checkpoint: runtimeCheckpoint!,
       anomaly: runtimeAnomaly!,
+      emergency: runtimeEmergency!,
     }
   }
 
@@ -283,7 +289,7 @@ export function buildGateway(
     try {
       const nowIso = new Date().toISOString()
       const idempotencyKey = c.req.header('x-idempotency-key')
-      const { repo, resolver, tiResolver, tracer, anomaly } = await resolveRuntime()
+      const { repo, resolver, tiResolver, tracer, anomaly, emergency } = await resolveRuntime()
       if (idempotencyKey) {
         const existing = await repo.getIdempotency(idempotencyKey, nowIso)
         if (existing) {
@@ -297,6 +303,17 @@ export function buildGateway(
         { 'wenyan.message_id': String((body as { id?: string })?.id ?? ''), 'wenyan.seal_type': 0 },
         async () => tongzhengSi(tiResolver, resolver, body),
       )
+
+      if (isImperialWorksGenre(message.genre) && !canDraftGenre(message.actor.role, message.genre)) {
+        return c.json({ error: 'hierarchy_violation' }, 403)
+      }
+      if (constitutionalAmendmentInProgress && message.genre === 'blueprint_change' && message.actor.role.startsWith('worker_')) {
+        return c.json({ error: 'constitutional_amendment_in_progress' }, 403)
+      }
+      const siteStatus = await repo.getSiteStatus()
+      if (siteStatus === 'QUARANTINED' && message.genre !== 'safety_incident' && message.genre !== 'edict') {
+        return c.json({ error: 'site_quarantined' }, 423)
+      }
 
       if (quarantinedActors.has(message.actor.id)) {
         return c.json({ error: 'actor-quarantined' }, 403)
@@ -364,6 +381,15 @@ export function buildGateway(
       await repo.appendMessage(message)
       await repo.enqueueDocket(message.id)
 
+      if (message.genre === 'safety_incident') {
+        await emergency.routeSafetyIncident({
+          messageId: message.id,
+          severity: String((message.payload as Record<string, unknown>).severity_level ?? 'critical') as 'low' | 'medium' | 'high' | 'critical',
+          location: String((message.payload as Record<string, unknown>).location ?? 'unknown'),
+          actorId: message.actor.id,
+        })
+      }
+
       const item = await repo.dequeueDocket(new Date().toISOString())
       if (item) {
         const result = await processDocketMessage(repo, item.messageId, sealContext, {
@@ -379,6 +405,9 @@ export function buildGateway(
         })
         if (result.finalState === 'rejected' && result.reason === 'invalid-constitutional-reference') {
           return c.json({ error: 'Invalid Constitutional Reference', reason: result.reason }, 422)
+        }
+        if (item.messageId === message.id && message.genre === 'blueprint_change') {
+          constitutionalAmendmentInProgress = result.finalState === 'pending'
         }
         if (result.finalState === 'archived' && message.genre === 'ti_definition') {
           const nowMs = Date.now()
@@ -513,6 +542,25 @@ export function buildGateway(
       }
       return c.json({ error: 'internal-error' }, 500)
     }
+  })
+
+  app.post('/emergency/safety-incident', async (c) => {
+    const { repo, emergency } = await resolveRuntime()
+    const body = (await c.req.json().catch(() => ({}))) as {
+      id?: string
+      severity?: 'low' | 'medium' | 'high' | 'critical'
+      location?: string
+      actorId?: string
+    }
+    if (!body.id) return c.json({ error: 'message-id-required' }, 400)
+    const result = await emergency.routeSafetyIncident({
+      messageId: body.id,
+      severity: body.severity ?? 'critical',
+      location: body.location ?? 'unknown',
+      actorId: body.actorId ?? 'unknown',
+    })
+    await repo.setSiteStatus('QUARANTINED', `safety:${body.id}`)
+    return c.json(result, 202)
   })
 
   app.get('/messages/:id', (c) => {

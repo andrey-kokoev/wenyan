@@ -26,8 +26,10 @@ If you want to understand the architectural rationale and design principles behi
 - `packages/crdt` (`@wenyan/crdt`) - CRDT reconciliation for legislative conflicts
 - `packages/consensus` (`@wenyan/consensus`) - PBFT lifecycle for constitutional consensus
 - `packages/bridge` (`@wenyan/bridge`) - foreign protocol bridge runtime (standalone Node)
+- `packages/imperial-works` (`@wenyan/imperial-works`) - role hierarchy, emergency routing, and construction anomaly rules
+- `packages/mobile-foreman` (`@wenyan/mobile-foreman`) - PWA offline foreman queue and sync primitives
 - `packages/genesis` (`@wenyan/genesis`) - explicit genesis bootstrap (`createEmptyOffice`, `applyGenesis`)
-- `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`
+- `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`, `imperialworks`, `mobile sync`
 - `packages/tests` - shared fixtures used by server tests
 
 ## Storage adapters
@@ -121,6 +123,9 @@ batch_size = 100
 - `wenyan sync --peer gossip://seed:7946`
 - `wenyan mesh status`
 - `wenyan bridge run --config wenyan.toml`
+- `wenyan imperialworks init|status|ceremony --workers <n> --days <n>`
+- `wenyan imperialworks emergency --site <id> --severity <level>`
+- `wenyan mobile sync --node <minister-node>`
 
 ## Installation From GitHub Packages
 

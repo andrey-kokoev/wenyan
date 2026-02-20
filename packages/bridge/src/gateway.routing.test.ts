@@ -63,6 +63,7 @@ describe('bridge outbound routing', () => {
         enqueued.push(adapterId)
       },
       dequeueBridgeOutbound: async () => [],
+      appendBridgeDeadLetter: async () => {},
     } as unknown as ArchiveRepository
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {
