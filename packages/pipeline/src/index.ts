@@ -1,6 +1,6 @@
 import { canAuthorize, canReview } from '@wenyan/actor'
 import type { ArchiveRepository } from '@wenyan/archive'
-import type { MessageEnvelope, Transition } from '@wenyan/core'
+import { validateTiDefinition, type MessageEnvelope, type Transition } from '@wenyan/core'
 import { DEV_SEAL_CONTEXT, createSealChain, verifySealChain, type SealContext } from '@wenyan/seal'
 
 export class SealInvalidError extends Error {
@@ -14,6 +14,26 @@ export interface PipelineResult {
   messageId: string
   finalState: 'pending' | 'authorized' | 'rejected' | 'archived'
   reason?: string
+}
+
+function validateAgainstStoredSchema(payload: Record<string, unknown>, schema: Record<string, unknown>): boolean {
+  const required = Array.isArray(schema.required) ? schema.required : []
+  for (const key of required) {
+    if (typeof key === 'string' && !(key in payload)) return false
+  }
+  const properties = schema.properties
+  if (!properties || typeof properties !== 'object') return true
+  for (const [key, rule] of Object.entries(properties as Record<string, unknown>)) {
+    if (!(key in payload)) continue
+    const value = payload[key]
+    const type = (rule as { type?: unknown }).type
+    if (type === 'string' && typeof value !== 'string') return false
+    if (type === 'number' && typeof value !== 'number') return false
+    if (type === 'boolean' && typeof value !== 'boolean') return false
+    if (type === 'object' && (typeof value !== 'object' || value === null || Array.isArray(value))) return false
+    if (type === 'array' && !Array.isArray(value)) return false
+  }
+  return true
 }
 
 function transition (
@@ -69,6 +89,22 @@ export function shenfu (message: MessageEnvelope): { ok: true } | { ok: false; r
     return { ok: false, reason: 'empty-payload' }
   }
   return { ok: true }
+}
+
+async function shenfuSchema(message: MessageEnvelope, repo: ArchiveRepository): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (message.genre === 'ti_definition') {
+    try {
+      validateTiDefinition(message)
+      return { ok: true }
+    } catch {
+      return { ok: false, reason: 'invalid-ti-definition' }
+    }
+  }
+  const schema = await repo.getActiveGenreSchema(message.genre)
+  if (!schema) return { ok: true }
+  return validateAgainstStoredSchema(message.payload, schema)
+    ? { ok: true }
+    : { ok: false, reason: 'schema-noncompliant' }
 }
 
 export function pizhun (message: MessageEnvelope): { ok: true } | { ok: false; reason: string } {
@@ -132,6 +168,13 @@ export async function processDocketMessage (
     const prev = ((await repo.getTransitions(messageId)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
     await repo.appendTransition(transition(normalized, 'validated', 'rejected', seq, review.reason, prev))
     return { messageId, finalState: 'rejected', reason: review.reason }
+  }
+  const schemaReview = await shenfuSchema(normalized, repo)
+  if (!schemaReview.ok) {
+    const seq = (await repo.getTransitions(messageId)).length + 1
+    const prev = ((await repo.getTransitions(messageId)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+    await repo.appendTransition(transition(normalized, 'validated', 'rejected', seq, schemaReview.reason, prev))
+    return { messageId, finalState: 'rejected', reason: schemaReview.reason }
   }
 
   const seq2 = (await repo.getTransitions(messageId)).length + 1

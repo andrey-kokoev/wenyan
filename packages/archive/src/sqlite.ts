@@ -333,6 +333,25 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return row?.to_state
   }
 
+  getActiveGenreSchema(targetGenre: string): Record<string, unknown> | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT payload_json
+         FROM messages
+         WHERE json_extract(payload_json, '$.genre') = 'ti_definition'
+           AND json_extract(payload_json, '$.payload.target_genre') = ?
+           AND json_extract(payload_json, '$.payload.superseded_by') IS NULL
+         ORDER BY received_at DESC
+         LIMIT 1`,
+      )
+      .get(targetGenre) as { payload_json?: string } | undefined
+    if (!row?.payload_json) return undefined
+    const envelope = JSON.parse(row.payload_json) as MessageEnvelope
+    const payload = envelope.payload as Record<string, unknown>
+    if (!payload || typeof payload.schema !== 'object' || payload.schema === null) return undefined
+    return payload.schema as Record<string, unknown>
+  }
+
   close(): void {
     this.db.close()
   }

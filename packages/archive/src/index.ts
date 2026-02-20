@@ -29,6 +29,7 @@ export interface ArchiveRepository {
   addOfficeApproval(messageId: string, office: string): number | Promise<number>
   getOfficeApprovals(messageId: string): string[] | Promise<string[]>
   stateAt(messageId: string, timestampIso: string): MessageState | undefined | Promise<MessageState | undefined>
+  getActiveGenreSchema(targetGenre: string): Record<string, unknown> | undefined | Promise<Record<string, unknown> | undefined>
 }
 
 export class InMemoryArchiveRepository implements ArchiveRepository {
@@ -126,6 +127,16 @@ export class InMemoryArchiveRepository implements ArchiveRepository {
       .filter((t) => (t.sealedAt ?? t.at) <= timestampIso)
       .sort((a, b) => b.sequenceNo - a.sequenceNo)
     return transitions[0]?.toState
+  }
+
+  getActiveGenreSchema(targetGenre: string): Record<string, unknown> | undefined {
+    const defs = Array.from(this.messages.values())
+      .filter((m) => m.genre === 'ti_definition')
+      .map((m) => m.payload as Record<string, unknown>)
+      .filter((p) => p.target_genre === targetGenre && !p.superseded_by)
+    const latest = defs.at(-1)
+    if (!latest || typeof latest.schema !== 'object' || latest.schema === null) return undefined
+    return latest.schema as Record<string, unknown>
   }
 }
 

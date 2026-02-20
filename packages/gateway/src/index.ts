@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { ArchiveRepository } from '@wenyan/archive'
 import type { ReliableChannel } from '@wenyan/channel'
-import { validateEnvelope } from '@wenyan/core'
+import { validateEnvelope, validateTiDefinition } from '@wenyan/core'
 import { DEV_SEAL_CONTEXT, type SealContext } from '@wenyan/seal'
 import { SealInvalidError, finalizePendingMessage, processDocketMessage } from '@wenyan/pipeline'
 
@@ -21,8 +21,25 @@ function requiredOffices(message: { payload: Record<string, unknown> }): string[
   return []
 }
 
-export function tongzhengSi (input: unknown) {
-  return validateEnvelope(input)
+async function validateByArchivedTi(repo: ArchiveRepository, message: ReturnType<typeof validateEnvelope>) {
+  if (message.genre === 'ti_definition') {
+    validateTiDefinition(message)
+    return
+  }
+  const schema = await repo.getActiveGenreSchema(message.genre)
+  if (!schema) return
+  const required = Array.isArray(schema.required) ? schema.required : []
+  for (const key of required) {
+    if (typeof key === 'string' && !(key in message.payload)) {
+      throw new Error('schema-noncompliant')
+    }
+  }
+}
+
+export async function tongzhengSi (repo: ArchiveRepository, input: unknown) {
+  const message = validateEnvelope(input)
+  await validateByArchivedTi(repo, message)
+  return message
 }
 
 type RepoFactory = ArchiveRepository | (() => ArchiveRepository | Promise<ArchiveRepository>)
@@ -48,7 +65,7 @@ export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel,
       }
 
       const body = await c.req.json()
-      const message = tongzhengSi(body)
+      const message = await tongzhengSi(repo, body)
 
       await repo.appendMessage(message)
       await repo.enqueueDocket(message.id)
@@ -78,6 +95,9 @@ export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel,
     } catch (error) {
       if (isZodLikeError(error)) {
         return c.json({ error: 'invalid-payload', issues: error.issues }, 400)
+      }
+      if (error instanceof Error && error.message === 'schema-noncompliant') {
+        return c.json({ error: 'schema-noncompliant' }, 400)
       }
       if (error instanceof SealInvalidError) {
         return c.json({ error: 'invalid-seal-chain' }, 403)

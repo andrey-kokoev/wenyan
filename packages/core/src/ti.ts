@@ -23,6 +23,18 @@ export const MessageEnvelopeSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
 })
 
+export const TiDefinitionPayloadSchema = z.object({
+  target_genre: z.string().min(1),
+  version: z.string().min(1),
+  schema: z.record(z.string(), z.unknown()),
+  superseded_by: z.string().min(1).optional(),
+})
+
+export const TiDefinitionSchema = MessageEnvelopeSchema.extend({
+  genre: z.literal('ti_definition'),
+  payload: TiDefinitionPayloadSchema,
+})
+
 export const TransitionSchema = z.object({
   messageId: z.string().min(1),
   fromState: MessageStateSchema,
