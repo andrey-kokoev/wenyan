@@ -14,6 +14,10 @@ export const ActorSchema = z.object({
   role: z.string().min(1),
 })
 
+export const LawSnapshotSchema = z.object({
+  at: z.string().datetime(),
+})
+
 export const MessageEnvelopeSchema = z.object({
   id: z.string().min(1),
   genre: z.string().min(1),

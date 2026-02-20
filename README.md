@@ -22,6 +22,7 @@ If you want to understand the architectural rationale and design principles behi
 - `packages/pipeline` (`@wenyan/pipeline`) - Caoni/Shenfu/Pizhun stages + law resolver
 - `packages/gateway` (`@wenyan/gateway`) - gateway routes and Tongzheng Si input filter
 - `packages/channel` (`@wenyan/channel`) - reliable local broadcast channel
+- `packages/genesis` (`@wenyan/genesis`) - explicit genesis bootstrap (`createEmptyOffice`, `applyGenesis`)
 - `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`
 - `packages/tests` - shared fixtures used by server tests
 
@@ -29,15 +30,13 @@ If you want to understand the architectural rationale and design principles behi
 
 - `sqlite` adapter (local Dang'an)
 - `cloudflare` adapter (D1-backed Dang'an)
-- `memory` adapter (test fallback)
 
 ## Law In Dang'an
 
 - Runtime law/config for admission/appointment/classification/routing/protocol/regulation is resolved from archived `genre: "edict"` documents.
 - Genre schema registry is archived as sealed `genre: "ti_definition"` documents.
 - Static filesystem config is bootstrap-only (`wenyan.toml`): archive engine/path, genesis identity/key, gateway bind, and optional law cache tuning.
-- Default mode is `compat`: missing/ambiguous/invalid law can fall back to legacy behavior with emitted fallback events.
-- `strict` mode fails closed when required law cannot be resolved.
+- Runtime is strict fail-closed: missing/ambiguous/invalid law and undefined genres are rejected.
 
 ## Runtime endpoints
 
@@ -67,7 +66,7 @@ host = "127.0.0.1"
 port = 8787
 
 [law]
-mode = "compat"
+mode = "strict"
 ```
 
 ## Commands

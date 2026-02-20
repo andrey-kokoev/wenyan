@@ -1,30 +1,22 @@
 {
-  "name": "@wenyan/gateway",
+  "name": "@wenyan/genesis",
   "version": "0.3.0",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "bin": {
-    "tongzheng-si": "dist/server.js"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src --passWithNoTests",
+    "test": "echo 'no tests configured yet'",
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.8",
     "@wenyan/archive": "workspace:*",
-    "@wenyan/channel": "workspace:*",
     "@wenyan/core": "workspace:*",
-    "@wenyan/pipeline": "workspace:*",
-    "@wenyan/seal": "workspace:*",
-    "hono": "^4.11.7"
+    "@wenyan/seal": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "typescript": "^5.9.3"
   }
 }

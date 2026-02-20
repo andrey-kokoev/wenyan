@@ -9,6 +9,7 @@ import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
 import type { EdictLawType, MessageEnvelope } from '../../core/src/index'
 
 const tempFiles = new Set<string>()
+const IMPERIAL_CONTEXT = { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-a', 'sig-b', 'sig-c'] }
 
 function trackDbFile(file: string): void {
   tempFiles.add(file)
@@ -246,10 +247,10 @@ describe('Ritual 1: Grand Secretariat Establishment (Genesis Bootstrap)', () => 
   it('requires law bootstrap in strict mode, then seeds constitution idempotently', async () => {
     const { repo, file } = createRepo('ritual3-genesis')
 
-    const preBootstrap = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const preBootstrap = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
     const rejected = await submit(preBootstrap, petitionMessage())
     expect(rejected.status).toBe(503)
-    expect((await rejected.json() as { error: string }).error).toBe('genre-schema-missing')
+    expect((await rejected.json() as { error: string }).error).toBe('Schema Undefined')
 
     seedGenesisConstitution(repo)
     const messagesBefore = tableCount(file, 'messages')
@@ -265,7 +266,7 @@ describe('Ritual 1: Grand Secretariat Establishment (Genesis Bootstrap)', () => 
     expect(tableCount(file, 'ti_definition_index')).toBe(tiBefore)
 
     seedGenreDefinition(repo, 'petition')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
     const accepted = await submit(app, petitionMessage())
     expect(accepted.status).toBe(201)
     const body = await accepted.json() as { id: string }
@@ -280,13 +281,13 @@ describe('Ritual 2: Imperial Catalogue (Ti Definition Creation)', () => {
   it('enforces archived Ti schema once promulgated', async () => {
     const { repo } = createRepo('ritual3-ti')
     seedGenesisConstitution(repo)
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
 
     const beforeTi = await submit(app, petitionMessage({
       payload: { body: 'accepted before ti definition' },
     }))
     expect(beforeTi.status).toBe(503)
-    expect((await beforeTi.json() as { error: string }).error).toBe('genre-schema-missing')
+    expect((await beforeTi.json() as { error: string }).error).toBe('Schema Undefined')
 
     const tiId = `ti-petition-v1-${randomUUID()}`
     const tiRes = await submit(
@@ -325,7 +326,7 @@ describe('Ritual 3: Appointment Edict (Governance without Structure Change)', ()
     const { repo } = createRepo('ritual3-appointment')
     seedGenesisConstitution(repo)
     seedGenreDefinition(repo, 'petition', ['title'])
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
 
     const activeLawId = `edict-appointment-active-${randomUUID()}`
     const activeLaw = await submit(
@@ -394,7 +395,7 @@ describe('Ritual 4: Constitutional Amendment (Superseding Ti)', () => {
   it('selects latest non-superseded ti_definition and preserves historical documents', async () => {
     const { repo } = createRepo('ritual3-amendment')
     seedGenesisConstitution(repo)
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
 
     const tiV1 = `ti-petition-v1-${randomUUID()}`
     const v1Res = await submit(
@@ -441,7 +442,7 @@ describe('Ritual 5: Precedence Conflict (Edict Override)', () => {
     const { repo } = createRepo('ritual3-precedence')
     seedGenesisConstitution(repo)
     seedGenreDefinition(repo, 'petition', ['title'])
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
 
     const edict1 = `edict-routing-1-${randomUUID()}`
     const e1 = await submit(
@@ -513,10 +514,10 @@ describe('Ritual 6: Cold Start Verification (Constitution from Empty)', () => {
     seedGenreDefinition(nodeA.repo, 'petition')
 
     const bootlessB = createRepo('ritual3-cold-b-empty')
-    const bootlessApp = buildGateway(bootlessB.repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const bootlessApp = buildGateway(bootlessB.repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
     const preSync = await submit(bootlessApp, petitionMessage({ id: `bootless-${randomUUID()}` }))
     expect(preSync.status).toBe(503)
-    expect((await preSync.json() as { error: string }).error).toBe('genre-schema-missing')
+    expect((await preSync.json() as { error: string }).error).toBe('Schema Undefined')
     bootlessB.repo.close()
 
     nodeA.repo.close()
@@ -538,7 +539,7 @@ describe('Ritual 6: Cold Start Verification (Constitution from Empty)', () => {
     const idsB = Object.fromEntries(Object.entries(lawSetB).map(([k, v]) => [k, v?.messageId ?? null]))
     expect(idsB).toEqual(idsA)
 
-    const nodeBApp = buildGateway(nodeB, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const nodeBApp = buildGateway(nodeB, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
     const postSync = await submit(nodeBApp, petitionMessage({ id: `synced-${randomUUID()}` }))
     expect(postSync.status).toBe(201)
     const postSyncId = (await postSync.json() as { id: string }).id
@@ -553,7 +554,7 @@ describe('Ritual 7: Invalid Cross-Reference', () => {
   it('rejects malformed edict law_type at Tongzheng Si boundary', async () => {
     const { repo } = createRepo('ritual3-invalid-xref')
     seedGenesisConstitution(repo)
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
 
     const badId = `edict-invalid-${randomUUID()}`
     const res = await submit(app, {
@@ -585,7 +586,7 @@ describe('Ritual 8: Protocol Edict (Meta-Governance)', () => {
     const { repo } = createRepo('ritual3-protocol')
     seedGenesisConstitution(repo)
     seedGenreDefinition(repo, 'dispatch')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
 
     const protocolId = `edict-protocol-${randomUUID()}`
     const lawRes = await submit(
@@ -640,7 +641,7 @@ describe('Ritual 8: Protocol Edict (Meta-Governance)', () => {
     const { repo } = createRepo('ritual3-protocol-invalid')
     seedGenesisConstitution(repo)
     seedGenreDefinition(repo, 'dispatch')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+    const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
 
     const invalidProtocol = await submit(
       app,

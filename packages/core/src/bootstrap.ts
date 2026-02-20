@@ -23,7 +23,7 @@ const GatewayConfigSchema = z.object({
 })
 
 const LawConfigSchema = z.object({
-  mode: LawModeSchema.default('compat'),
+  mode: LawModeSchema.default('strict'),
 })
 
 const LawCacheConfigSchema = z.object({
@@ -35,7 +35,7 @@ export const BootstrapConfigSchema = z.object({
   archive: ArchiveConfigSchema,
   genesis: GenesisConfigSchema,
   gateway: GatewayConfigSchema,
-  law: LawConfigSchema.default({ mode: 'compat' }),
+  law: LawConfigSchema.default({ mode: 'strict' }),
   law_cache: LawCacheConfigSchema.optional(),
 })
 

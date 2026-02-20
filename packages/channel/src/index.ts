@@ -34,3 +34,5 @@ export class ReliableChannel {
     return this.log.filter((e) => e.at >= sinceIso);
   }
 }
+
+export * from './merkle'

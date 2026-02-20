@@ -10,7 +10,7 @@ import {
   type Transition,
 } from '@wenyan/core'
 import type { SealRecord } from '@wenyan/seal'
-import type { ArchiveRepository, DocketItem } from './index'
+import type { ArchiveRepository, ConstitutionalDocumentRef, DocketItem, TiDefinitionRecord } from './index'
 
 interface ArchiveOptions {
   retentionDays?: number
@@ -38,9 +38,12 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         genre TEXT,
         payload_json TEXT NOT NULL,
         seal_chain_json TEXT NOT NULL DEFAULT '[]',
+        constitutional INTEGER NOT NULL DEFAULT 0,
+        superseded_by TEXT,
         received_at TEXT NOT NULL,
         submitted_at TEXT,
-        archived_at TEXT
+        archived_at TEXT,
+        FOREIGN KEY(superseded_by) REFERENCES messages(id)
       );
 
       CREATE TABLE IF NOT EXISTS transitions (
@@ -128,11 +131,14 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     const cols = this.db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
     const colNames = new Set(cols.map((c) => c.name))
     if (!colNames.has('genre')) this.db.exec('ALTER TABLE messages ADD COLUMN genre TEXT')
+    if (!colNames.has('constitutional')) this.db.exec('ALTER TABLE messages ADD COLUMN constitutional INTEGER NOT NULL DEFAULT 0')
+    if (!colNames.has('superseded_by')) this.db.exec('ALTER TABLE messages ADD COLUMN superseded_by TEXT')
     if (!colNames.has('submitted_at')) this.db.exec('ALTER TABLE messages ADD COLUMN submitted_at TEXT')
     if (!colNames.has('archived_at')) this.db.exec('ALTER TABLE messages ADD COLUMN archived_at TEXT')
 
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_messages_genre ON messages(genre);
+      CREATE INDEX IF NOT EXISTS idx_constitutional_genre ON messages(constitutional, genre, archived_at);
       CREATE INDEX IF NOT EXISTS idx_edict_lookup ON edict_index(law_type, effective_date DESC, precedence DESC, sealed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_edict_supersession ON edict_index(superseded_edict_id);
       CREATE INDEX IF NOT EXISTS idx_ti_lookup ON ti_definition_index(target_genre, sealed_at DESC);
@@ -232,16 +238,53 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(3, ?, ?, ?)')
         .run(v3Hash, latestPostV2.migration_hash, new Date().toISOString())
     }
+
+    const latestPostV3 = this.db.prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1').get() as
+      | { version: number; migration_hash: string }
+      | undefined
+    if (!latestPostV3) return
+
+    const v4Hash = sha256(`${latestPostV3.migration_hash}:archive-schema-v4-constitutional-columns`)
+    if (latestPostV3.version < 4) {
+      this.db.exec(`
+        UPDATE messages
+        SET constitutional = CASE
+          WHEN genre = 'ti_definition' THEN 1
+          WHEN COALESCE(json_extract(payload_json, '$.metadata.constitutional'), 0) IN (1, true, 'true') THEN 1
+          ELSE constitutional
+        END;
+
+        UPDATE messages
+        SET superseded_by = COALESCE(
+          superseded_by,
+          json_extract(payload_json, '$.payload.superseded_by'),
+          json_extract(payload_json, '$.payload.superseded_edict_id')
+        );
+      `)
+
+      this.db
+        .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(4, ?, ?, ?)')
+        .run(v4Hash, latestPostV3.migration_hash, new Date().toISOString())
+    }
   }
 
   appendMessage(message: MessageEnvelope): void {
+    const payload = message.payload as Record<string, unknown>
+    const metadata = message.metadata as Record<string, unknown>
+    const constitutional = message.genre === 'ti_definition' || metadata.constitutional === true ? 1 : 0
+    const supersededBy =
+      (typeof payload.superseded_by === 'string' ? payload.superseded_by : undefined) ??
+      (typeof payload.superseded_edict_id === 'string' ? payload.superseded_edict_id : undefined) ??
+      null
     this.db
-      .prepare('INSERT INTO messages(id, genre, payload_json, seal_chain_json, received_at, submitted_at) VALUES(?, ?, ?, ?, ?, ?)')
+      .prepare('INSERT INTO messages(id, genre, payload_json, seal_chain_json, constitutional, superseded_by, received_at, submitted_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
       .run(
         message.id,
         message.genre,
         JSON.stringify(message),
         '[]',
+        constitutional,
+        supersededBy,
         new Date().toISOString(),
         message.submittedAt,
       )
@@ -466,24 +509,37 @@ export class SqliteArchiveRepository implements ArchiveRepository {
   }
 
   getActiveGenreSchema(targetGenre: string): Record<string, unknown> | undefined {
+    const def = this.getCurrentTiDefinition(targetGenre)
+    return def?.schema
+  }
+
+  getCurrentTiDefinition(genre: string, atIso = new Date().toISOString()): TiDefinitionRecord | undefined {
     const row = this.db
       .prepare(
-        `SELECT t.schema_json
+        `SELECT t.message_id, t.target_genre, t.version, t.schema_json, t.sealed_at
          FROM ti_definition_index t
          WHERE t.target_genre = ?
+           AND t.sealed_at <= ?
            AND NOT EXISTS (
             SELECT 1 FROM ti_definition_index s
             WHERE s.target_genre = t.target_genre
               AND s.superseded_by = t.message_id
+              AND s.sealed_at <= ?
            )
          ORDER BY t.sealed_at DESC, t.message_id DESC
          LIMIT 1`,
       )
-      .get(targetGenre) as { schema_json?: string } | undefined
-    if (!row?.schema_json) return undefined
-    const schema = JSON.parse(row.schema_json) as Record<string, unknown>
-    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return undefined
-    return schema
+      .get(genre, atIso, atIso) as
+      | { message_id: string; target_genre: string; version: string; schema_json: string; sealed_at: string }
+      | undefined
+    if (!row) return undefined
+    return {
+      messageId: row.message_id,
+      targetGenre: row.target_genre,
+      version: row.version,
+      schema: JSON.parse(row.schema_json) as Record<string, unknown>,
+      sealedAt: row.sealed_at,
+    }
   }
 
   getCurrentLaw(lawType: EdictLawType, atIso: string): ResolvedLaw | undefined {
@@ -549,12 +605,32 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return out
   }
 
+  getConstitutionalDocuments(): ConstitutionalDocumentRef[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, archived_at
+         FROM messages
+         WHERE constitutional = 1
+           AND archived_at IS NOT NULL
+         ORDER BY archived_at ASC, id ASC`,
+      )
+      .all() as Array<{ id: string; archived_at: string }>
+    return rows.map((r) => ({ id: r.id, archivedAt: r.archived_at }))
+  }
+
   private indexArchivedMessage(messageId: string, sealedAt: string): void {
     const message = this.getMessage(messageId)
     if (!message) return
+    const payload = message.payload as Record<string, unknown>
+    const metadata = message.metadata as Record<string, unknown>
+    const constitutional = message.genre === 'ti_definition' || metadata.constitutional === true ? 1 : 0
+    const supersededBy =
+      (typeof payload.superseded_by === 'string' ? payload.superseded_by : undefined) ??
+      (typeof payload.superseded_edict_id === 'string' ? payload.superseded_edict_id : undefined) ??
+      null
+    this.db.prepare('UPDATE messages SET constitutional = ?, superseded_by = ? WHERE id = ?').run(constitutional, supersededBy, messageId)
 
     if (message.genre === 'edict') {
-      const payload = message.payload as Record<string, unknown>
       const lawType = payload.law_type
       if (typeof lawType !== 'string') return
       this.db

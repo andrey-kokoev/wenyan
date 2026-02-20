@@ -41,7 +41,7 @@ export interface Bindings {
   // Wenyan bootstrap/runtime override vars
   WENYAN_ARCHIVE_ENGINE?: "sqlite" | "cloudflare"
   WENYAN_ARCHIVE_PATH?: string
-  WENYAN_LAW_MODE?: "compat" | "strict"
+  WENYAN_LAW_MODE?: "strict"
   WENYAN_LAW_CACHE_TTL_SECONDS?: string
   WENYAN_LAW_PRELOAD_TYPES?: string
   WENYAN_NODE_ID?: string

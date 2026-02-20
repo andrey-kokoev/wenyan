@@ -1,9 +1,10 @@
 import type { z } from 'zod'
-import { MessageEnvelopeSchema, MessageStateSchema, TransitionSchema } from './ti'
+import { LawSnapshotSchema, MessageEnvelopeSchema, MessageStateSchema, TransitionSchema } from './ti'
 
 export type MessageState = z.infer<typeof MessageStateSchema>
 export type MessageEnvelope = z.infer<typeof MessageEnvelopeSchema>
 export type Transition = z.infer<typeof TransitionSchema>
+export type LawSnapshot = z.infer<typeof LawSnapshotSchema>
 
 export const AllowedTransitions: Record<MessageState, MessageState[]> = {
   pending: ['validated', 'authorized', 'rejected'],

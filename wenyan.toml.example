@@ -14,7 +14,7 @@ host = "127.0.0.1"
 port = 8787
 
 [law]
-mode = "compat"
+mode = "strict"
 
 [law_cache]
 ttl_seconds = 60

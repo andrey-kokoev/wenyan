@@ -1,4 +1,4 @@
-import { InMemoryArchiveRepository, type ArchiveRepository } from './index'
+import type { ArchiveRepository } from './index'
 import { SqliteArchiveRepository } from './sqlite'
 import { CloudflareArchiveRepository, type D1DatabaseLike } from './cloudflare'
 
@@ -33,15 +33,7 @@ export class CloudflareStorageAdapter implements StorageAdapter {
   }
 }
 
-export class InMemoryStorageAdapter implements StorageAdapter {
-  readonly kind = 'memory'
-
-  createRepository(): ArchiveRepository {
-    return new InMemoryArchiveRepository()
-  }
-}
-
-export type StorageAdapterKind = 'sqlite' | 'cloudflare' | 'memory'
+export type StorageAdapterKind = 'sqlite' | 'cloudflare'
 
 export interface StorageAdapterFactoryOptions {
   kind: StorageAdapterKind
@@ -57,8 +49,6 @@ export function createStorageAdapter(options: StorageAdapterFactoryOptions): Sto
     case 'cloudflare':
       if (!options.d1) throw new Error('cloudflare adapter requires d1 binding')
       return new CloudflareStorageAdapter(options.d1, options.retentionDays ?? 3650)
-    case 'memory':
-      return new InMemoryStorageAdapter()
     default:
       throw new Error(`unsupported storage adapter: ${(options as { kind: string }).kind}`)
   }

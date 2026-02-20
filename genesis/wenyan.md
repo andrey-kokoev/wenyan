@@ -45,7 +45,7 @@ The six-seal chain is enforced at runtime through deterministic hash/signature v
 - Schema definitions (immutable kinds)
 - Cryptographic invariants (hash algorithms, signature schemes)
 - State machine graph (valid transitions encoded in TypeScript schemas/helpers)
-- Role hierarchy (law-resolved permissions with compat fallback)
+- Role hierarchy (law-resolved permissions, strict fail-closed)
 
 **Moving** (The Flow):
 - Message instances (temporary documents in pipeline)

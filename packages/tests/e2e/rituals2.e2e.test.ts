@@ -21,7 +21,91 @@ function repoFor(name: string): SqliteArchiveRepository {
   const repo = new SqliteArchiveRepository(file)
   repo.initialize()
   repo.migrate()
+  seedBaseline(repo, ['secret-memorial', 'joint-memorial', 'urgent-dispatch', 'petition', 'notice', 'dispatch', 'errata'])
   return repo
+}
+
+function archiveSeed(repo: SqliteArchiveRepository, message: Record<string, unknown>): void {
+  const envelope = message as Parameters<SqliteArchiveRepository['appendMessage']>[0]
+  repo.appendMessage(envelope)
+  repo.appendTransition({
+    messageId: envelope.id,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: envelope.actor.id,
+    sealedAt: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+    at: new Date().toISOString(),
+  })
+}
+
+function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
+  const seedActor = { id: 'seed', role: 'genesis_admin' }
+  const seedMeta = { constitutional: true }
+  const now = new Date().toISOString()
+  archiveSeed(repo, {
+    id: `edict-admission-${Date.now()}`,
+    genre: 'edict',
+    payload: { law_type: 'admission', version: '1.0.0', content: { allowed_genres: ['*'] }, precedence: 0, effective_date: now },
+    actor: seedActor,
+    submittedAt: now,
+    metadata: seedMeta,
+  })
+  archiveSeed(repo, {
+    id: `edict-appointment-${Date.now()}`,
+    genre: 'edict',
+    payload: {
+      law_type: 'appointment',
+      version: '1.0.0',
+      content: { roles: { admin: { permissions: ['draft', 'review', 'authorize'], allowed_genres: ['*'] } } },
+      precedence: 0,
+      effective_date: now,
+    },
+    actor: seedActor,
+    submittedAt: now,
+    metadata: seedMeta,
+  })
+  archiveSeed(repo, {
+    id: `edict-routing-${Date.now()}`,
+    genre: 'edict',
+    payload: { law_type: 'routing', version: '1.0.0', content: { table: {}, broadcast_policy: 'hierarchical' }, precedence: 0, effective_date: now },
+    actor: seedActor,
+    submittedAt: now,
+    metadata: seedMeta,
+  })
+  archiveSeed(repo, {
+    id: `edict-classification-${Date.now()}`,
+    genre: 'edict',
+    payload: {
+      law_type: 'classification',
+      version: '1.0.0',
+      content: { levels: ['open', 'inner', 'secret', 'top'], hierarchy: 'strict', compartmentalization: true },
+      precedence: 0,
+      effective_date: now,
+    },
+    actor: seedActor,
+    submittedAt: now,
+    metadata: seedMeta,
+  })
+  archiveSeed(repo, {
+    id: `edict-protocol-${Date.now()}`,
+    genre: 'edict',
+    payload: { law_type: 'protocol', version: '1.0.0', content: { required_acks_by_genre: {} }, precedence: 0, effective_date: now },
+    actor: seedActor,
+    submittedAt: now,
+    metadata: seedMeta,
+  })
+  for (const genre of genres) {
+    archiveSeed(repo, {
+      id: `ti-${genre}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      genre: 'ti_definition',
+      payload: { target_genre: genre, version: '1.0.0', schema: { type: 'object', required: [] } },
+      actor: seedActor,
+      submittedAt: now,
+      metadata: seedMeta,
+    })
+  }
 }
 
 describe('Ritual 8: Secret Memorial (Mifeng)', () => {

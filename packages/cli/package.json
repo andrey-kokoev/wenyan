@@ -1,6 +1,6 @@
 {
   "name": "@wenyan/cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "bin": {
     "wenyan": "dist/index.js"
@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@wenyan/archive": "workspace:*",
+    "@wenyan/channel": "workspace:*",
     "@wenyan/core": "workspace:*",
-    "@wenyan/pipeline": "workspace:*",
-    "@wenyan/seal": "workspace:*"
+    "@wenyan/genesis": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",

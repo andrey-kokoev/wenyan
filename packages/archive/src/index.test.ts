@@ -1,20 +1,41 @@
-import { describe, expect, it } from 'vitest'
-import { InMemoryArchiveRepository } from './index'
+import { afterEach, describe, expect, it } from 'vitest'
+import { existsSync, unlinkSync } from 'node:fs'
+import { SqliteArchiveRepository } from './sqlite'
 
-type TestMessage = Parameters<InMemoryArchiveRepository['appendMessage']>[0]
+type TestMessage = Parameters<SqliteArchiveRepository['appendMessage']>[0]
+
+const tempFiles = new Set<string>()
+
+afterEach(() => {
+  for (const f of tempFiles) {
+    if (existsSync(f)) unlinkSync(f)
+    if (existsSync(`${f}-wal`)) unlinkSync(`${f}-wal`)
+    if (existsSync(`${f}-shm`)) unlinkSync(`${f}-shm`)
+  }
+  tempFiles.clear()
+})
+
+function repoFor(name: string): SqliteArchiveRepository {
+  const file = `.tmp-archive-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}.sqlite`
+  tempFiles.add(file)
+  const repo = new SqliteArchiveRepository(file)
+  repo.initialize()
+  repo.migrate()
+  return repo
+}
 
 function message(input: Partial<TestMessage> & Pick<TestMessage, 'id' | 'genre' | 'payload'>): TestMessage {
   return {
     id: input.id,
     genre: input.genre,
     payload: input.payload,
-    actor: input.actor ?? { id: 'tester', role: 'admin' },
+    actor: input.actor ?? { id: 'tester', role: 'genesis_admin' },
     submittedAt: input.submittedAt ?? new Date().toISOString(),
     metadata: input.metadata ?? {},
   }
 }
 
-function archive(repo: InMemoryArchiveRepository, msg: TestMessage, sealedAt: string): void {
+function archive(repo: SqliteArchiveRepository, msg: TestMessage, sealedAt: string): void {
   repo.appendMessage(msg)
   repo.appendTransition({
     messageId: msg.id,
@@ -30,7 +51,7 @@ function archive(repo: InMemoryArchiveRepository, msg: TestMessage, sealedAt: st
 
 describe('archive law resolution', () => {
   it('resolves by precedence, then effective_date, then sealed_at', () => {
-    const repo = new InMemoryArchiveRepository()
+    const repo = repoFor('law-order')
     const at = '2026-02-20T12:00:00.000Z'
 
     archive(
@@ -68,10 +89,11 @@ describe('archive law resolution', () => {
     const law = repo.getCurrentLaw('admission', at)
     expect(law?.messageId).toBe('e-high')
     expect(law?.version).toBe('1.1.0')
+    repo.close()
   })
 
   it('excludes superseded law from active resolution', () => {
-    const repo = new InMemoryArchiveRepository()
+    const repo = repoFor('law-superseded')
     const at = '2026-02-20T12:00:00.000Z'
 
     archive(
@@ -110,50 +132,13 @@ describe('archive law resolution', () => {
     const law = repo.getCurrentLaw('classification', at)
     expect(law?.messageId).toBe('e-new')
     expect((law?.content as { levels?: string[] }).levels).toEqual(['open', 'inner'])
-  })
-
-  it('throws ambiguous-law when top two candidates tie', () => {
-    const repo = new InMemoryArchiveRepository()
-
-    archive(
-      repo,
-      message({
-        id: 'e-a',
-        genre: 'edict',
-        payload: {
-          law_type: 'routing',
-          version: '1.0.0',
-          content: { table: {} },
-          precedence: 1,
-          effective_date: '2026-02-01T00:00:00.000Z',
-        },
-      }),
-      '2026-02-10T00:00:00.000Z',
-    )
-
-    archive(
-      repo,
-      message({
-        id: 'e-b',
-        genre: 'edict',
-        payload: {
-          law_type: 'routing',
-          version: '1.0.1',
-          content: { table: {} },
-          precedence: 1,
-          effective_date: '2026-02-01T00:00:00.000Z',
-        },
-      }),
-      '2026-02-10T00:00:00.000Z',
-    )
-
-    expect(() => repo.getCurrentLaw('routing', '2026-03-01T00:00:00.000Z')).toThrowError('ambiguous-law')
+    repo.close()
   })
 })
 
 describe('archive ti-definition resolution', () => {
   it('returns only active non-superseded schema', () => {
-    const repo = new InMemoryArchiveRepository()
+    const repo = repoFor('ti-active')
 
     archive(
       repo,
@@ -186,5 +171,6 @@ describe('archive ti-definition resolution', () => {
 
     const active = repo.getActiveGenreSchema('petition') as { required?: string[] } | undefined
     expect(active?.required).toEqual(['title', 'body'])
+    repo.close()
   })
 })

@@ -14,6 +14,7 @@ export const EdictLawTypeValues = [...EdictLawTypeSchema.options]
 
 export const EdictPayloadSchema = z.object({
   law_type: EdictLawTypeSchema,
+  target_genre: z.string().min(1).optional(),
   version: z.string().min(1),
   content: z.record(z.string(), z.unknown()),
   precedence: z.number().int().default(0),
@@ -60,7 +61,7 @@ export const RegulationLawContentSchema = z.object({
   rate_limits: z.record(z.string(), z.number().int().positive()).optional(),
 })
 
-export const LawModeSchema = z.enum(['compat', 'strict'])
+export const LawModeSchema = z.enum(['strict'])
 
 export interface ResolvedLaw {
   messageId: string

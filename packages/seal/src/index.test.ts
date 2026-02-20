@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEV_SEAL_CONTEXT, createSealChain, verifySealChain } from './index'
+import { DEV_SEAL_CONTEXT, InsufficientImperialAuthorityError, createSealChain, verifySealChain } from './index'
 import type { MessageEnvelope } from '@wenyan/core'
 
 const message: MessageEnvelope = {
@@ -21,5 +21,20 @@ describe('seal', () => {
     const seals = await createSealChain(message, DEV_SEAL_CONTEXT)
     seals[1].payload = { ...(seals[1].payload ?? {}), schemaMerkleRoot: 'tampered' }
     expect(await verifySealChain(message, seals, DEV_SEAL_CONTEXT)).toBe(false)
+  })
+
+  it('enforces elevated threshold for ti_definition by default', async () => {
+    const constitutional: MessageEnvelope = {
+      ...message,
+      id: 'ti-1',
+      genre: 'ti_definition',
+      payload: {
+        target_genre: 'petition',
+        version: '1.0.0',
+        schema: { type: 'object' },
+      },
+      metadata: { constitutional: true },
+    }
+    await expect(createSealChain(constitutional, DEV_SEAL_CONTEXT)).rejects.toBeInstanceOf(InsufficientImperialAuthorityError)
   })
 })

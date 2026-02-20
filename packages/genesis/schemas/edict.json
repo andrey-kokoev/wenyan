@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["law_type", "version", "content", "precedence", "effective_date"],
+  "properties": {
+    "law_type": { "type": "string" },
+    "target_genre": { "type": "string" },
+    "version": { "type": "string" },
+    "content": { "type": "object" },
+    "precedence": { "type": "number" },
+    "effective_date": { "type": "string" },
+    "superseded_edict_id": { "type": "string" }
+  }
+}

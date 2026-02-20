@@ -7,7 +7,6 @@ export type LawResolverEventType =
   | 'law.ambiguous'
   | 'law.cache.hit'
   | 'law.cache.miss'
-  | 'law.fallback.used'
 
 export interface LawResolverEvent {
   type: LawResolverEventType
@@ -36,7 +35,7 @@ export class LawResolver {
   private cache = new Map<EdictLawType, CacheEntry>()
 
   constructor(private readonly archive: ArchiveRepository, options: LawResolverOptions = {}) {
-    this.mode = options.mode ?? 'compat'
+    this.mode = options.mode ?? 'strict'
     this.cacheTtlSeconds = options.cacheTtlSeconds ?? 60
     this.preloadTypes = options.preloadTypes ?? ['appointment', 'classification']
     this.onEvent = options.onEvent
@@ -98,10 +97,6 @@ export class LawResolver {
       out[lawType] = await this.get(lawType, atIso)
     }
     return out
-  }
-
-  noteFallback(lawType: EdictLawType, reason: string, atIso = new Date().toISOString()): void {
-    this.emit({ type: 'law.fallback.used', lawType, at: atIso, detail: reason })
   }
 
   private emit(event: LawResolverEvent): void {

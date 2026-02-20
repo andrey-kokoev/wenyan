@@ -100,11 +100,33 @@ function withRouting(message: MessageEnvelope, routing: Record<string, unknown>)
   }
 }
 
+function withLawSnapshot(message: MessageEnvelope, atIso: string): MessageEnvelope {
+  return {
+    ...message,
+    metadata: {
+      ...(message.metadata as Record<string, unknown>),
+      law_snapshot: {
+        at: atIso,
+      },
+    },
+  }
+}
+
+function lawSnapshotAt(message: MessageEnvelope): string {
+  const metadata = message.metadata as Record<string, unknown>
+  const raw = metadata.law_snapshot
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const at = (raw as { at?: unknown }).at
+    if (typeof at === 'string' && at.length > 0) return at
+  }
+  return message.submittedAt
+}
+
 function resolverFor(repo: ArchiveRepository, options: PipelineRuntimeOptions = {}): LawResolver {
   if (options.lawResolver) return options.lawResolver
 
   const resolverOptions: LawResolverOptions = {
-    mode: options.lawMode ?? 'compat',
+    mode: options.lawMode ?? 'strict',
     cacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
     preloadTypes: options.lawPreloadTypes,
     onEvent: options.onLawEvent,
@@ -160,6 +182,16 @@ async function shenfuSchema(
       return { ok: false, reason: 'invalid-ti-definition' }
     }
   }
+  if (message.genre === 'edict') {
+    const payload = message.payload as Record<string, unknown>
+    const targetGenre = payload.target_genre
+    if (typeof targetGenre === 'string' && targetGenre.length > 0) {
+      const targetTi = await repo.getCurrentTiDefinition(targetGenre, lawSnapshotAt(message))
+      if (!targetTi) {
+        return { ok: false, reason: 'invalid-constitutional-reference' }
+      }
+    }
+  }
   const schema = await repo.getActiveGenreSchema(message.genre)
   if (!schema) return { ok: true }
 
@@ -174,9 +206,8 @@ async function shenfuSchema(
 
 function appointmentAllowsGenre(
   message: MessageEnvelope,
-  appointmentLaw: AppointmentLawContent | undefined,
+  appointmentLaw: AppointmentLawContent,
 ): boolean {
-  if (!appointmentLaw) return true
   const allowed = allowedGenresForRole(message.actor.role, appointmentLaw)
   return allowed.includes('*') || allowed.includes(message.genre)
 }
@@ -185,9 +216,11 @@ async function applyRoutingLaw(
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true; message: MessageEnvelope } | { ok: false; reason: string }> {
+  const snapshotAt = lawSnapshotAt(message)
   const law = await loadLawContent({
     resolver,
     lawType: 'routing',
+    atIso: snapshotAt,
     schema: RoutingLawContentSchema,
     strictErrors: {
       missing: 'routing-law-missing-routing',
@@ -221,9 +254,11 @@ async function reviewByLaw(
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const snapshotAt = lawSnapshotAt(message)
   const law = await loadLawContent({
     resolver,
     lawType: 'appointment',
+    atIso: snapshotAt,
     schema: AppointmentLawContentSchema,
     strictErrors: {
       missing: 'appointment-law-missing-appointment',
@@ -232,19 +267,14 @@ async function reviewByLaw(
     },
   })
   if (!law.ok) return { ok: false, reason: law.error }
+  if (!law.content) return { ok: false, reason: 'appointment-law-missing-appointment' }
 
-  if (law.content) {
-    if (!canReview(message.actor.role, law.content)) {
-      return { ok: false, reason: 'actor-cannot-review' }
-    }
-    if (!appointmentAllowsGenre(message, law.content)) {
-      return { ok: false, reason: 'genre-not-allowed-for-role' }
-    }
-    return { ok: true }
-  }
-
-  if (!canReview(message.actor.role)) {
+  const appointmentLaw = law.content
+  if (!canReview(message.actor.role, appointmentLaw)) {
     return { ok: false, reason: 'actor-cannot-review' }
+  }
+  if (!appointmentAllowsGenre(message, appointmentLaw)) {
+    return { ok: false, reason: 'genre-not-allowed-for-role' }
   }
   return { ok: true }
 }
@@ -253,9 +283,11 @@ async function authorizeByLaw(
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const snapshotAt = lawSnapshotAt(message)
   const law = await loadLawContent({
     resolver,
     lawType: 'appointment',
+    atIso: snapshotAt,
     schema: AppointmentLawContentSchema,
     strictErrors: {
       missing: 'appointment-law-missing-appointment',
@@ -264,15 +296,9 @@ async function authorizeByLaw(
     },
   })
   if (!law.ok) return { ok: false, reason: law.error }
+  if (!law.content) return { ok: false, reason: 'appointment-law-missing-appointment' }
 
-  if (law.content) {
-    if (!canAuthorize(message.actor.role, law.content)) {
-      return { ok: false, reason: 'actor-cannot-authorize' }
-    }
-    return { ok: true }
-  }
-
-  if (!canAuthorize(message.actor.role)) {
+  if (!canAuthorize(message.actor.role, law.content)) {
     return { ok: false, reason: 'actor-cannot-authorize' }
   }
   return { ok: true }
@@ -282,9 +308,11 @@ async function classificationCheck(
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const snapshotAt = lawSnapshotAt(message)
   const law = await loadLawContent({
     resolver,
     lawType: 'classification',
+    atIso: snapshotAt,
     schema: ClassificationLawContentSchema,
     strictErrors: {
       missing: 'classification-law-missing-classification',
@@ -293,7 +321,7 @@ async function classificationCheck(
     },
   })
   if (!law.ok) return { ok: false, reason: law.error }
-  if (!law.content) return { ok: true }
+  if (!law.content) return { ok: false, reason: 'classification-law-missing-classification' }
 
   const clearance = extractClearance(message)
   if (!clearance) return { ok: true }
@@ -307,9 +335,11 @@ async function requiredAcksByLaw(
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true; required: number } | { ok: false; reason: string }> {
+  const snapshotAt = lawSnapshotAt(message)
   const law = await loadLawContent({
     resolver,
     lawType: 'protocol',
+    atIso: snapshotAt,
     schema: ProtocolLawContentSchema,
     strictErrors: {
       missing: 'protocol-law-missing-protocol',
@@ -353,8 +383,9 @@ export async function finalizePendingMessage(
   const resolver = resolverFor(repo, options)
   const message = await repo.getMessage(messageId)
   if (!message) throw new Error(`Message not found: ${messageId}`)
+  const withSnapshot = withLawSnapshot(message, new Date().toISOString())
 
-  const requiredAcks = await requiredAcksByLaw(resolver, message)
+  const requiredAcks = await requiredAcksByLaw(resolver, withSnapshot)
   if (!requiredAcks.ok) {
     return { messageId, finalState: 'rejected', reason: requiredAcks.reason }
   }
@@ -365,8 +396,8 @@ export async function finalizePendingMessage(
     }
   }
 
-  const result = await applySealsAndArchive(repo, message, sealContext)
-  maybeInvalidateLawFromMessage(resolver, message)
+  const result = await applySealsAndArchive(repo, withSnapshot, sealContext)
+  maybeInvalidateLawFromMessage(resolver, withSnapshot)
   return result
 }
 
@@ -382,7 +413,7 @@ export async function processDocketMessage(
     throw new Error(`Message not found: ${messageId}`)
   }
 
-  const normalized = caoni(message)
+  const normalized = withLawSnapshot(caoni(message), new Date().toISOString())
   const routed = await applyRoutingLaw(resolver, normalized)
   if (!routed.ok) {
     await appendNextTransition(repo, normalized, 'pending', 'rejected', routed.reason)

@@ -53,7 +53,7 @@ host = "127.0.0.1"
 port = 8787
 
 [law]
-mode = "compat"
+mode = "strict"
 `)
     expect(BootstrapConfigSchema.parse(cfg).archive.engine).toBe('sqlite')
     expect(cfg.gateway.listen.port).toBe(8787)

@@ -3,6 +3,7 @@ import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils'
 import { getPublicKeyAsync, signAsync, verifyAsync } from '@noble/ed25519'
 import type { MessageEnvelope } from '@wenyan/core'
 import type { Provenance } from '@wenyan/actor'
+import { resolveRequiredImperialSignatures, type SealThresholdPolicy } from './thresholds'
 
 export type SealStage = 'caoni' | 'shenfu-1' | 'shenfu-2' | 'shenfu-3' | 'shenfu-4' | 'pizhun'
 
@@ -26,6 +27,15 @@ export interface SealContext {
   lamportClock: number
   routeKey: string
   provenance?: Provenance
+  imperialSignatures?: string[]
+  thresholdPolicyOverrides?: Partial<SealThresholdPolicy>
+}
+
+export class InsufficientImperialAuthorityError extends Error {
+  constructor(message = 'insufficient-imperial-authority') {
+    super(message)
+    this.name = 'InsufficientImperialAuthorityError'
+  }
 }
 
 const stageOrder: SealStage[] = ['caoni', 'shenfu-1', 'shenfu-2', 'shenfu-3', 'shenfu-4', 'pizhun']
@@ -87,7 +97,13 @@ function payloadForStage(
   if (stage === 'shenfu-4') {
     return { routeCommitment: digestHex(context.routeKey) }
   }
-  return { imperialCommitment: digestHex(`${message.id}:${context.routeKey}:${nowIso}`) }
+  const required = resolveRequiredImperialSignatures(message.genre, context.thresholdPolicyOverrides)
+  const provided = (context.imperialSignatures ?? []).length
+  return {
+    imperialCommitment: digestHex(`${message.id}:${context.routeKey}:${nowIso}`),
+    required_signatures: required,
+    provided_signatures: provided,
+  }
 }
 
 async function signStage(hash: string, stage: SealStage, context: SealContext): Promise<string> {
@@ -139,6 +155,13 @@ export async function createSealChain(
   let prevHash = startPrevHash
 
   for (const stage of stageOrder) {
+    if (stage === 'pizhun') {
+      const required = resolveRequiredImperialSignatures(message.genre, context.thresholdPolicyOverrides)
+      const provided = (context.imperialSignatures ?? []).length
+      if (provided < required) {
+        throw new InsufficientImperialAuthorityError()
+      }
+    }
     const createdAt = new Date().toISOString()
     const payload = payloadForStage(stage, message, context, createdAt)
     const hash = digestHex(
@@ -208,11 +231,19 @@ export async function verifySealChain(message: MessageEnvelope, seals: SealRecor
       }
     }
 
+    if (stage === 'pizhun') {
+      const required = resolveRequiredImperialSignatures(message.genre, context.thresholdPolicyOverrides)
+      const provided = (context.imperialSignatures ?? []).length
+      if (provided < required) return false
+    }
+
     prevHash = seal.hash
   }
 
   return true
 }
+
+export * from './thresholds'
 
 export const DEV_SEAL_CONTEXT: SealContext = {
   draftPrivateKeyHex: '1'.repeat(64),
@@ -220,6 +251,7 @@ export const DEV_SEAL_CONTEXT: SealContext = {
   capabilitySecret: 'wenyan-capability-secret',
   lamportClock: 1,
   routeKey: 'local.default.route',
+  imperialSignatures: ['local-dev'],
   provenance: {
     kind: 'agent',
     service_account: 'wenyan-local-agent',

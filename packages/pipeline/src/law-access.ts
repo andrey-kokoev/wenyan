@@ -8,6 +8,7 @@ export type LawContentLoadResult<T> =
 export interface LawContentLoadOptions<T> {
   resolver: LawResolver
   lawType: EdictLawType
+  atIso?: string
   schema: {
     safeParse(input: unknown):
       | { success: true; data: T }
@@ -21,32 +22,26 @@ export interface LawContentLoadOptions<T> {
 }
 
 export async function loadLawContent<T>(options: LawContentLoadOptions<T>): Promise<LawContentLoadResult<T>> {
-  const { resolver, lawType, schema, strictErrors } = options
+  const { resolver, lawType, atIso, schema, strictErrors } = options
   let raw: Record<string, unknown> | undefined
 
   try {
-    const law = await resolver.get(lawType)
+    const law = await resolver.get(lawType, atIso)
     raw = law?.content
   } catch (error) {
     if (error instanceof Error && error.message === 'ambiguous-law') {
-      if (resolver.getMode() === 'strict') return { ok: false, error: strictErrors.ambiguous }
-      resolver.noteFallback(lawType, 'ambiguous')
-      return { ok: true, content: undefined }
+      return { ok: false, error: strictErrors.ambiguous }
     }
     throw error
   }
 
   if (!raw) {
-    if (resolver.getMode() === 'strict') return { ok: false, error: strictErrors.missing }
-    resolver.noteFallback(lawType, 'missing')
-    return { ok: true, content: undefined }
+    return { ok: false, error: strictErrors.missing }
   }
 
   const parsed = schema.safeParse(raw)
   if (!parsed.success) {
-    if (resolver.getMode() === 'strict') return { ok: false, error: strictErrors.invalid }
-    resolver.noteFallback(lawType, 'invalid-content')
-    return { ok: true, content: undefined }
+    return { ok: false, error: strictErrors.invalid }
   }
 
   return { ok: true, content: parsed.data }

@@ -114,7 +114,7 @@ function resolveBootstrap(env: Bindings) {
       ...(env.WENYAN_UPSTREAM ? { upstream: env.WENYAN_UPSTREAM } : {}),
     },
     law: {
-      mode: (env.WENYAN_LAW_MODE as LawMode | undefined) ?? 'compat',
+      mode: (env.WENYAN_LAW_MODE as LawMode | undefined) ?? 'strict',
     },
     law_cache: {
       ttl_seconds: parsePositiveInt(env.WENYAN_LAW_CACHE_TTL_SECONDS, 60),
@@ -134,9 +134,6 @@ function resolveStorageAdapter(kind: string | undefined, env: Bindings, sqlitePa
       retentionDays: 3650,
     });
   }
-  if (kind === 'memory') {
-    return createStorageAdapter({ kind: 'memory' });
-  }
   return createStorageAdapter({ kind: 'sqlite', sqlitePath, retentionDays: 3650 });
 }
 
@@ -144,7 +141,7 @@ let wenyanArchive: Awaited<ReturnType<StorageAdapter['createRepository']>> | und
 let wenyanArchiveInit: Promise<void> | undefined
 const wenyanChannel = new ReliableChannel();
 const wenyanGatewayOptions: GatewayRuntimeOptions = {
-  lawMode: 'compat',
+  lawMode: 'strict',
   lawCacheTtlSeconds: 60,
   lawPreloadTypes: ['appointment', 'classification'],
 };

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
-import type { ArchiveRepository } from '@wenyan/archive'
-import type { ReliableChannel } from '@wenyan/channel'
+import { TiResolver, type ArchiveRepository } from '@wenyan/archive'
+import { constitutionalMerkleRoot, type ReliableChannel } from '@wenyan/channel'
 import {
   AdmissionLawContentSchema,
   ProtocolLawContentSchema,
@@ -10,7 +10,7 @@ import {
   type EdictLawType,
   type LawMode,
 } from '@wenyan/core'
-import { DEV_SEAL_CONTEXT, type SealContext } from '@wenyan/seal'
+import { DEV_SEAL_CONTEXT, InsufficientImperialAuthorityError, type SealContext } from '@wenyan/seal'
 import {
   LawResolver,
   SealInvalidError,
@@ -29,6 +29,13 @@ function isZodLikeError(error: unknown): error is { issues: unknown[] } {
   )
 }
 
+class SchemaUndefinedError extends Error {
+  constructor(readonly genre: string) {
+    super('genre-schema-missing')
+    this.name = 'SchemaUndefinedError'
+  }
+}
+
 function requiredOffices(message: { payload: Record<string, unknown> }): string[] {
   const routing = message.payload.routing as { destination?: unknown } | undefined
   if (Array.isArray(routing?.destination)) return routing.destination.map(String)
@@ -45,7 +52,7 @@ export interface GatewayRuntimeOptions {
 }
 
 async function validateByArchivedTi(
-  repo: ArchiveRepository,
+  tiResolver: TiResolver,
   message: ReturnType<typeof validateEnvelope>,
   options: { requireDefinedGenreSchema?: boolean } = {},
 ) {
@@ -58,13 +65,14 @@ async function validateByArchivedTi(
     return
   }
 
-  const schema = await repo.getActiveGenreSchema(message.genre)
-  if (!schema) {
+  const ti = await tiResolver.getCurrentTiDefinition(message.genre)
+  if (!ti) {
     if (options.requireDefinedGenreSchema) {
-      throw new Error('genre-schema-missing')
+      throw new SchemaUndefinedError(message.genre)
     }
     return
   }
+  const schema = ti.schema
   const required = Array.isArray(schema.required) ? schema.required : []
   for (const key of required) {
     if (typeof key === 'string' && !(key in message.payload)) {
@@ -122,14 +130,12 @@ async function protocolRequiredAcks(resolver: LawResolver, message: { genre: str
 }
 
 export async function tongzhengSi(
-  repo: ArchiveRepository,
+  tiResolver: TiResolver,
   resolver: LawResolver,
   input: unknown,
 ) {
   const message = validateEnvelope(input)
-  await validateByArchivedTi(repo, message, {
-    requireDefinedGenreSchema: resolver.getMode() === 'strict',
-  })
+  await validateByArchivedTi(tiResolver, message, { requireDefinedGenreSchema: true })
   await admissionCheck(resolver, message)
   return message
 }
@@ -150,29 +156,31 @@ export function buildGateway(
   const app = new Hono()
   let runtimeRepo: ArchiveRepository | undefined
   let runtimeResolver: LawResolver | undefined = options.lawResolver
+  let runtimeTiResolver: TiResolver | undefined
 
-  async function resolveRuntime(): Promise<{ repo: ArchiveRepository; resolver: LawResolver }> {
+  async function resolveRuntime(): Promise<{ repo: ArchiveRepository; resolver: LawResolver; tiResolver: TiResolver }> {
     const repo = await resolveRepo(repoFactory)
     if (!runtimeResolver || runtimeRepo !== repo) {
       runtimeResolver =
         options.lawResolver ??
         new LawResolver(repo, {
-          mode: options.lawMode ?? 'compat',
+          mode: options.lawMode ?? 'strict',
           cacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
           preloadTypes: options.lawPreloadTypes,
           onEvent: options.onLawEvent,
         })
       runtimeRepo = repo
+      runtimeTiResolver = new TiResolver(repo, { ttlSeconds: options.lawCacheTtlSeconds ?? 60 })
       await runtimeResolver.preload()
     }
-    return { repo, resolver: runtimeResolver }
+    return { repo, resolver: runtimeResolver, tiResolver: runtimeTiResolver! }
   }
 
   app.post('/messages', async (c) => {
     try {
       const nowIso = new Date().toISOString()
       const idempotencyKey = c.req.header('x-idempotency-key')
-      const { repo, resolver } = await resolveRuntime()
+      const { repo, resolver, tiResolver } = await resolveRuntime()
       if (idempotencyKey) {
         const existing = await repo.getIdempotency(idempotencyKey, nowIso)
         if (existing) {
@@ -181,7 +189,7 @@ export function buildGateway(
       }
 
       const body = await c.req.json()
-      const message = await tongzhengSi(repo, resolver, body)
+      const message = await tongzhengSi(tiResolver, resolver, body)
 
       await repo.appendMessage(message)
       await repo.enqueueDocket(message.id)
@@ -190,11 +198,19 @@ export function buildGateway(
       if (item) {
         const result = await processDocketMessage(repo, item.messageId, sealContext, {
           lawResolver: resolver,
-          lawMode: options.lawMode ?? 'compat',
+          lawMode: options.lawMode ?? 'strict',
           lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
           lawPreloadTypes: options.lawPreloadTypes,
           onLawEvent: options.onLawEvent,
         })
+        if (result.finalState === 'rejected' && result.reason === 'invalid-constitutional-reference') {
+          return c.json({ error: 'Invalid Constitutional Reference', reason: result.reason }, 422)
+        }
+        if (message.genre === 'ti_definition' && result.finalState === 'archived') {
+          const payload = message.payload as Record<string, unknown>
+          const targetGenre = typeof payload.target_genre === 'string' ? payload.target_genre : undefined
+          tiResolver.invalidate(targetGenre)
+        }
         const transitions = await repo.getTransitions(item.messageId)
         const last = transitions[transitions.length - 1]
         channel.publish({
@@ -221,14 +237,17 @@ export function buildGateway(
       if (error instanceof Error && error.message === 'schema-noncompliant') {
         return c.json({ error: 'schema-noncompliant' }, 400)
       }
-      if (error instanceof Error && error.message === 'genre-schema-missing') {
-        return c.json({ error: 'genre-schema-missing' }, 503)
+      if (error instanceof SchemaUndefinedError) {
+        return c.json({ error: 'Schema Undefined', genre: error.genre }, 503)
       }
       if (error instanceof Error && error.message === 'genre-not-admitted') {
         return c.json({ error: 'genre-not-admitted' }, 403)
       }
       if (error instanceof Error && error.message.startsWith('law-')) {
         return c.json({ error: error.message }, 503)
+      }
+      if (error instanceof InsufficientImperialAuthorityError) {
+        return c.json({ error: 'insufficient-imperial-authority' }, 403)
       }
       if (error instanceof SealInvalidError) {
         return c.json({ error: 'invalid-seal-chain' }, 403)
@@ -263,13 +282,16 @@ export function buildGateway(
     try {
       const result = await finalizePendingMessage(repo, id, sealContext, {
         lawResolver: resolver,
-        lawMode: options.lawMode ?? 'compat',
+        lawMode: options.lawMode ?? 'strict',
         lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
         lawPreloadTypes: options.lawPreloadTypes,
         onLawEvent: options.onLawEvent,
       })
       return c.json({ state: result.finalState, approvals, required: requiredCount }, 200)
     } catch (error) {
+      if (error instanceof InsufficientImperialAuthorityError) {
+        return c.json({ error: 'insufficient-imperial-authority' }, 403)
+      }
       if (error instanceof SealInvalidError) {
         return c.json({ error: 'invalid-seal-chain' }, 403)
       }
@@ -310,6 +332,16 @@ export function buildGateway(
   app.get('/stream', (c) => {
     const since = c.req.query('since') ?? new Date(Date.now() - 60_000).toISOString()
     return c.json({ events: channel.replay(since) })
+  })
+
+  app.get('/constitution/root', (c) => {
+    const runtimePromise = resolveRuntime()
+    return (async () => {
+      const { repo } = await runtimePromise
+      const root = await constitutionalMerkleRoot(repo)
+      const count = (await repo.getConstitutionalDocuments()).length
+      return c.json({ root, count })
+    })()
   })
 
   return app
