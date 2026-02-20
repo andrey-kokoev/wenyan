@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-02-20
 
 ### Added
 - Production-hardening security/process artifacts: `SECURITY.md`, `audit/`, fuzz harness scaffolds, SBOM tooling, and reproducible build documentation.
