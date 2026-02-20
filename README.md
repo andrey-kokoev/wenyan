@@ -9,6 +9,7 @@ If you want to understand the architectural rationale and design principles behi
 - [`genesis/wenyan.md`](genesis/wenyan.md) - architectural genesis and model
 - [`genesis/criteria-of-completeness.md`](genesis/criteria-of-completeness.md) - completion criteria and invariants
 - [`genesis/out-of-scope.md`](genesis/out-of-scope.md) - explicit non-goals and boundaries
+- [`sequence-graph.md`](sequence-graph.md) - end-to-end sequencing graph of the Wenyan flow
 
 ## Packages
 
