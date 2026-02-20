@@ -14,3 +14,7 @@ coverage
 *.log
 *.dev.vars
 .tmp-pack-check
+*initial-vector*
+packages/bridge/wenyan.dang'an
+packages/bridge/wenyan.dang'an-shm
+packages/bridge/wenyan.dang'an-wal
