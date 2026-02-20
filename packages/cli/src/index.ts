@@ -6,6 +6,7 @@ import { constitutionalMerkleRoot } from '@wenyan/channel'
 import { createEmptyOffice, applyGenesisFromDir } from '@wenyan/genesis'
 import { parseBootstrapConfigToml } from '@wenyan/core'
 import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
+import { BridgeGateway } from '@wenyan/bridge'
 
 const baseUrl = process.env.WENYAN_API_URL ?? 'http://127.0.0.1:8787/api/wenyan'
 
@@ -167,6 +168,62 @@ async function meshStatus(): Promise<void> {
   console.log(JSON.stringify(json, null, 2))
 }
 
+async function loadBootstrapFrom(configPath?: string) {
+  const file = resolve(configPath ?? 'wenyan.toml')
+  const text = await readFile(file, 'utf8')
+  return parseBootstrapConfigToml(text)
+}
+
+async function bridgeRun(configPath?: string): Promise<void> {
+  const bootstrap = await loadBootstrapFrom(configPath)
+  const bridge = new BridgeGateway({ bootstrap })
+  await bridge.start()
+  console.log('wenyan bridge running')
+  process.on('SIGINT', async () => {
+    await bridge.stop()
+    process.exit(0)
+  })
+  process.on('SIGTERM', async () => {
+    await bridge.stop()
+    process.exit(0)
+  })
+}
+
+async function bridgeStatus(configPath?: string): Promise<void> {
+  const bootstrap = await loadBootstrapFrom(configPath)
+  const bridge = new BridgeGateway({ bootstrap })
+  const status = await bridge.status()
+  console.log(JSON.stringify(status, null, 2))
+}
+
+async function bridgeSync(args: string[]): Promise<void> {
+  const configPath = argValue('--config', args)
+  const adapterId = argValue('--adapter', args)
+  const bootstrap = await loadBootstrapFrom(configPath)
+  const bridge = new BridgeGateway({ bootstrap })
+  await bridge.start()
+  try {
+    const result = await bridge.syncOnce(adapterId)
+    console.log(JSON.stringify(result, null, 2))
+  } finally {
+    await bridge.stop()
+  }
+}
+
+async function bridgeDryRun(args: string[]): Promise<void> {
+  const configPath = argValue('--config', args)
+  const adapterId = argValue('--adapter', args)
+  const filePath = argValue('--file', args)
+  if (!adapterId || !filePath) {
+    throw new Error('bridge dry-run requires --adapter and --file')
+  }
+  const payload = JSON.parse(await readFile(resolve(filePath), 'utf8')) as unknown
+  const bootstrap = await loadBootstrapFrom(configPath)
+  const bridge = new BridgeGateway({ bootstrap })
+  const translated = await bridge.dryRun(adapterId, payload)
+  console.log(JSON.stringify(translated, null, 2))
+}
+
 async function submit(arg?: string): Promise<void> {
   if (arg) {
     await postMessage(await readFile(arg, 'utf8'))
@@ -212,6 +269,26 @@ async function main() {
     return
   }
 
+  if (cmd === 'bridge' && args[1] === 'run') {
+    await bridgeRun(argValue('--config', args))
+    return
+  }
+
+  if (cmd === 'bridge' && args[1] === 'status') {
+    await bridgeStatus(argValue('--config', args))
+    return
+  }
+
+  if (cmd === 'bridge' && args[1] === 'sync') {
+    await bridgeSync(args)
+    return
+  }
+
+  if (cmd === 'bridge' && args[1] === 'dry-run') {
+    await bridgeDryRun(args)
+    return
+  }
+
   if (cmd === 'draft') {
     await draft(args.slice(1))
     return
@@ -242,12 +319,12 @@ async function main() {
   }
 
   if (!cmd && existsSync('wenyan.toml')) {
-    console.log('wenyan office detected. use: genesis apply | draft | submit | status | query | stream | sync | mesh status')
+    console.log('wenyan office detected. use: genesis apply | draft | submit | status | query | stream | sync | mesh status | bridge')
     return
   }
 
   console.error(
-    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | sync --peer <gossip://host:port> | mesh status | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream',
+    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | sync --peer <gossip://host:port> | mesh status | bridge run [--config <path>] | bridge status [--config <path>] | bridge sync --adapter <id> [--config <path>] | bridge dry-run --adapter <id> --file <path> [--config <path>] | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream',
   )
   process.exit(1)
 }

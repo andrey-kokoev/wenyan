@@ -1,0 +1,303 @@
+import type { ArchiveRepository } from '@wenyan/archive'
+import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
+import type { BootstrapConfig, BridgeAdapterConfig, BridgeProtocol, MessageEnvelope } from '@wenyan/core'
+import { KafkaBridgeAdapter } from './adapters/kafka'
+import { MqttBridgeAdapter } from './adapters/mqtt'
+import { NatsBridgeAdapter } from './adapters/nats'
+import type { AdapterContext, BridgeAdapter, BridgeMetrics, ForeignMetadata } from './types'
+
+interface BreakerState {
+  outcomes: boolean[]
+  pausedUntil: number
+}
+
+export interface BridgeGatewayOptions {
+  archive?: ArchiveRepository
+  bootstrap: BootstrapConfig
+  apiBaseUrl?: string
+  adapters?: BridgeAdapter[]
+}
+
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function defaultApiBaseUrl(config: BootstrapConfig): string {
+  return `http://${config.gateway.listen.host}:${config.gateway.listen.port}/api/wenyan`
+}
+
+function sanitizedEnvelope(document: MessageEnvelope, idempotencyKey: string): MessageEnvelope {
+  return {
+    id: document.id,
+    genre: document.genre,
+    payload: document.payload,
+    actor: document.actor,
+    submittedAt: document.submittedAt,
+    metadata: {
+      idempotency_key: idempotencyKey,
+      routing: (document.metadata?.routing as Record<string, unknown> | undefined) ?? {},
+      provenance: (document.metadata?.provenance as Record<string, unknown> | undefined) ?? {},
+    },
+  }
+}
+
+export class BridgeGateway {
+  private readonly archive: ArchiveRepository
+  private readonly config: BootstrapConfig
+  private readonly apiBaseUrl: string
+  private readonly adapters: BridgeAdapter[]
+  private pollTimer: NodeJS.Timeout | undefined
+  private lastStreamAt = new Date(0).toISOString()
+  private readonly breaker = new Map<string, BreakerState>()
+  private metrics: BridgeMetrics = {
+    bridge_foreign_bytes_in: 0,
+    bridge_wenyan_bytes_archived: 0,
+    bridge_information_loss_ratio: 0,
+  }
+
+  constructor(options: BridgeGatewayOptions) {
+    this.config = options.bootstrap
+    this.apiBaseUrl = options.apiBaseUrl ?? defaultApiBaseUrl(options.bootstrap)
+    this.archive = options.archive ?? this.createArchiveFromBootstrap(this.config)
+    this.adapters = options.adapters ?? this.config.bridge.adapters.map((cfg) => this.createAdapter(cfg))
+  }
+
+  async start(): Promise<void> {
+    if (!this.config.bridge.enabled) return
+    await this.ensureTargetGenres()
+    const ctx: AdapterContext = {
+      archive: this.archive,
+      onInbound: this.onInbound.bind(this),
+    }
+    for (const adapter of this.adapters) {
+      await adapter.start(ctx)
+      this.breaker.set(adapter.id, { outcomes: [], pausedUntil: 0 })
+    }
+    if (this.config.bridge.sync.mode !== 'push') {
+      this.pollTimer = setInterval(() => {
+        void this.syncOnce().catch(() => undefined)
+      }, this.config.bridge.sync.poll_interval_ms)
+    }
+    await this.syncOnce()
+  }
+
+  async stop(): Promise<void> {
+    if (this.pollTimer) clearInterval(this.pollTimer)
+    this.pollTimer = undefined
+    for (const adapter of this.adapters) await adapter.stop()
+  }
+
+  async status(): Promise<{
+    running: boolean
+    adapters: Array<{ id: string; protocol: BridgeProtocol; ok: boolean; detail?: string }>
+    metrics: BridgeMetrics
+  }> {
+    const statuses: Array<{ id: string; protocol: BridgeProtocol; ok: boolean; detail?: string }> = []
+    for (const adapter of this.adapters) {
+      const health = await adapter.health()
+      statuses.push({ id: adapter.id, protocol: adapter.protocol, ok: health.ok, detail: health.detail })
+    }
+    return {
+      running: this.config.bridge.enabled,
+      adapters: statuses,
+      metrics: this.metrics,
+    }
+  }
+
+  async dryRun(adapterId: string, payload: unknown): Promise<MessageEnvelope> {
+    const adapter = this.adapters.find((a) => a.id === adapterId)
+    if (!adapter) throw new Error(`bridge adapter not found: ${adapterId}`)
+    const metadata: ForeignMetadata = {
+      protocol: adapter.protocol,
+      adapterId,
+      headers: {},
+      subjectOrTopic: adapter.protocol,
+      timestampIso: nowIso(),
+    }
+    const idempotencyKey = adapter.into.extractIdempotencyKey(payload, metadata)
+    const translated = adapter.into.translate(payload, metadata)
+    if (!translated.ok) throw new Error(`dry-run translation failed: ${translated.error.code}`)
+    return sanitizedEnvelope(translated.document, idempotencyKey)
+  }
+
+  async syncOnce(targetAdapterId?: string): Promise<{ pushed: number }> {
+    if (!this.config.bridge.enabled) return { pushed: 0 }
+    await this.captureOutboundEvents()
+    const queue = await this.archive.dequeueBridgeOutbound(nowIso(), this.config.bridge.sync.batch_size)
+    let pushed = 0
+    for (const item of queue) {
+      if (targetAdapterId && targetAdapterId !== item.adapterId) continue
+      const adapter = this.adapters.find((a) => a.id === item.adapterId)
+      if (!adapter) {
+        await this.archive.markBridgeOutboundResult(item.id, 'failed', 'adapter-not-found')
+        continue
+      }
+      if (this.isBreakerOpen(adapter.id)) {
+        await this.archive.markBridgeOutboundResult(item.id, 'failed', 'circuit-open')
+        continue
+      }
+      try {
+        const message = await this.fetchMessage(item.messageId)
+        if (!message) {
+          await this.archive.markBridgeOutboundResult(item.id, 'failed', 'message-not-found')
+          this.recordFailure(adapter.id)
+          continue
+        }
+        const { foreignId } = await adapter.publishOutbound(message)
+        await this.archive.upsertForeignSyncState({
+          documentId: message.id,
+          adapterId: adapter.id,
+          adapterProtocol: adapter.protocol,
+          foreignId,
+          lastSyncAt: nowIso(),
+          conflictStatus: 'resolved',
+        })
+        await this.archive.markBridgeOutboundResult(item.id, 'sent')
+        this.recordSuccess(adapter.id)
+        pushed += 1
+      } catch (err) {
+        await this.archive.markBridgeOutboundResult(item.id, 'failed', err instanceof Error ? err.message : 'publish-failed')
+        this.recordFailure(adapter.id)
+      }
+    }
+    return { pushed }
+  }
+
+  private async onInbound(adapter: BridgeAdapter, payload: unknown, metadata: ForeignMetadata): Promise<void> {
+    const provenanceOk = await adapter.into.verifyProvenance(payload, metadata)
+    if (!provenanceOk) {
+      await this.archive.appendForeignRejected({
+        adapterId: adapter.id,
+        reasonCode: 'untrusted-provenance',
+        reasonDetail: `publisher is not attested for adapter ${adapter.id}`,
+        payloadJson: JSON.stringify(payload),
+        foreignId: undefined,
+        receivedAt: nowIso(),
+      })
+      return
+    }
+
+    const idempotencyKey = adapter.into.extractIdempotencyKey(payload, metadata)
+    const translated = adapter.into.translate(payload, metadata)
+    if (!translated.ok) {
+      await this.archive.appendForeignRejected({
+        adapterId: adapter.id,
+        reasonCode: translated.error.code,
+        reasonDetail: translated.error.message,
+        payloadJson: JSON.stringify(payload),
+        foreignId: idempotencyKey,
+        receivedAt: nowIso(),
+      })
+      return
+    }
+
+    const foreignBytes = Buffer.byteLength(JSON.stringify({ payload, metadata }), 'utf8')
+    const clean = sanitizedEnvelope(translated.document, idempotencyKey)
+    const wenyanBytes = Buffer.byteLength(JSON.stringify(clean), 'utf8')
+    this.metrics.bridge_foreign_bytes_in += foreignBytes
+    this.metrics.bridge_wenyan_bytes_archived += wenyanBytes
+    this.metrics.bridge_information_loss_ratio =
+      this.metrics.bridge_foreign_bytes_in === 0
+        ? 0
+        : (this.metrics.bridge_foreign_bytes_in - this.metrics.bridge_wenyan_bytes_archived) / this.metrics.bridge_foreign_bytes_in
+
+    const res = await fetch(`${this.apiBaseUrl}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(clean),
+    })
+    const json = (await res.json().catch(() => ({}))) as { id?: string; error?: string }
+    if (!res.ok) {
+      await this.archive.appendForeignRejected({
+        adapterId: adapter.id,
+        reasonCode: 'gateway-rejected',
+        reasonDetail: json.error ?? `status-${res.status}`,
+        payloadJson: JSON.stringify(payload),
+        foreignId: idempotencyKey,
+        receivedAt: nowIso(),
+      })
+      return
+    }
+
+    const messageId = json.id ?? clean.id
+    await this.archive.upsertForeignSyncState({
+      documentId: messageId,
+      adapterId: adapter.id,
+      adapterProtocol: adapter.protocol,
+      foreignId: idempotencyKey,
+      lastSyncAt: nowIso(),
+      conflictStatus: 'resolved',
+    })
+  }
+
+  private async ensureTargetGenres(): Promise<void> {
+    for (const adapter of this.config.bridge.adapters) {
+      if (adapter.target_genre === 'edict' || adapter.target_genre === 'ti_definition') continue
+      const schema = await this.archive.getCurrentTiDefinition(adapter.target_genre)
+      if (!schema) throw new Error(`bridge target genre undefined: ${adapter.target_genre}`)
+    }
+  }
+
+  private createAdapter(config: BridgeAdapterConfig): BridgeAdapter {
+    if (config.protocol === 'nats') return new NatsBridgeAdapter(config)
+    if (config.protocol === 'kafka') return new KafkaBridgeAdapter(config)
+    return new MqttBridgeAdapter(config)
+  }
+
+  private createArchiveFromBootstrap(config: BootstrapConfig): ArchiveRepository {
+    if (config.archive.engine !== 'sqlite') {
+      throw new Error('bridge standalone runtime currently supports sqlite archive only')
+    }
+    const repo = new SqliteArchiveRepository(config.archive.path)
+    repo.initialize()
+    repo.migrate()
+    return repo
+  }
+
+  private async captureOutboundEvents(): Promise<void> {
+    const res = await fetch(`${this.apiBaseUrl}/stream?since=${encodeURIComponent(this.lastStreamAt)}`)
+    if (!res.ok) return
+    const body = (await res.json()) as { events?: Array<{ at: string; type: string; messageId: string }> }
+    const events = body.events ?? []
+    for (const event of events) {
+      this.lastStreamAt = event.at
+      if (event.type !== 'archive.appended' && event.type !== 'transition.committed') continue
+      for (const adapter of this.adapters) {
+        await this.archive.enqueueBridgeOutbound(adapter.id, event.messageId, nowIso())
+      }
+    }
+  }
+
+  private async fetchMessage(id: string): Promise<MessageEnvelope | undefined> {
+    const res = await fetch(`${this.apiBaseUrl}/messages/${id}`)
+    if (!res.ok) return undefined
+    const json = (await res.json()) as { message?: MessageEnvelope }
+    return json.message
+  }
+
+  private recordSuccess(adapterId: string): void {
+    const state = this.breaker.get(adapterId)
+    if (!state) return
+    state.outcomes.push(true)
+    if (state.outcomes.length > 100) state.outcomes.shift()
+  }
+
+  private recordFailure(adapterId: string): void {
+    const state = this.breaker.get(adapterId)
+    if (!state) return
+    state.outcomes.push(false)
+    if (state.outcomes.length > 100) state.outcomes.shift()
+    const failures = state.outcomes.filter((x) => !x).length
+    const rate = state.outcomes.length === 0 ? 0 : failures / state.outcomes.length
+    if (rate > this.config.bridge.circuit_breaker.failure_rate_threshold) {
+      state.pausedUntil = Date.now() + this.config.bridge.circuit_breaker.cool_down_ms
+    }
+  }
+
+  private isBreakerOpen(adapterId: string): boolean {
+    const state = this.breaker.get(adapterId)
+    if (!state) return false
+    if (state.pausedUntil <= Date.now()) return false
+    return true
+  }
+}

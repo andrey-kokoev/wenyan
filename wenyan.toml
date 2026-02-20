@@ -38,3 +38,26 @@ view_change_timeout_ms = 5000
 batch_size = 200
 max_inflight = 4
 retry_backoff_ms = 300
+
+[bridge]
+enabled = false
+mode = "standalone"
+
+[bridge.sync]
+mode = "hybrid"
+poll_interval_ms = 1000
+batch_size = 100
+
+[bridge.circuit_breaker]
+failure_rate_threshold = 0.05
+cool_down_ms = 30000
+max_retries = 10
+
+[[bridge.adapters]]
+id = "nats-main"
+protocol = "nats"
+url = "nats://127.0.0.1:4222"
+subject_pattern = ["events.*"]
+target_genre = "telemetry"
+idempotency_header = "Nats-Msg-Id"
+trust_provenance = false

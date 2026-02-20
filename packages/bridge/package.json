@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/genesis",
+  "name": "@wenyan/bridge",
   "version": "0.5.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,12 +8,30 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./adapters/nats": {
+      "types": "./dist/adapters/nats.d.ts",
+      "import": "./dist/adapters/nats.js"
+    },
+    "./adapters/kafka": {
+      "types": "./dist/adapters/kafka.d.ts",
+      "import": "./dist/adapters/kafka.js"
+    },
+    "./adapters/mqtt": {
+      "types": "./dist/adapters/mqtt.d.ts",
+      "import": "./dist/adapters/mqtt.js"
+    },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "import": "./dist/sync.js"
     }
+  },
+  "bin": {
+    "wenyan-bridge": "dist/bin.js"
   },
   "files": [
     "dist/**/*",
-    "README.md",
-    "schemas/**/*"
+    "README.md"
   ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
@@ -21,22 +39,24 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andrey-kokoev/wenyan.git",
-    "directory": "packages/genesis"
+    "directory": "packages/bridge"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'no tests configured yet'",
+    "test": "vitest run src --passWithNoTests",
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
     "@wenyan/archive": "workspace:*",
     "@wenyan/core": "workspace:*",
-    "@wenyan/seal": "workspace:*"
+    "@wenyan/crdt": "workspace:*",
+    "nats": "^2.29.3"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

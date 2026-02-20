@@ -10,7 +10,17 @@ import {
   type Transition,
 } from '@wenyan/core'
 import type { SealRecord } from '@wenyan/seal'
-import type { ArchiveRepository, ConstitutionalDocumentRef, DocketItem, GossipLogEntry, MerkleProof, TiDefinitionRecord } from './index'
+import type {
+  ArchiveRepository,
+  BridgeOutboundQueueItem,
+  ConstitutionalDocumentRef,
+  DocketItem,
+  ForeignRejectedRecord,
+  ForeignSyncStateRecord,
+  GossipLogEntry,
+  MerkleProof,
+  TiDefinitionRecord,
+} from './index'
 import { merkleRootForLeaves } from './merkle-dag'
 
 interface ArchiveOptions {
@@ -151,6 +161,39 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         received_at TEXT NOT NULL,
         kind TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS foreign_sync_state (
+        document_id TEXT PRIMARY KEY,
+        adapter_id TEXT NOT NULL,
+        adapter_protocol TEXT NOT NULL,
+        foreign_id TEXT NOT NULL,
+        foreign_vector_clock_json TEXT,
+        last_sync_at TEXT NOT NULL,
+        conflict_status TEXT NOT NULL,
+        last_error TEXT,
+        FOREIGN KEY(document_id) REFERENCES messages(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS foreign_rejected (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        adapter_id TEXT NOT NULL,
+        foreign_id TEXT,
+        reason_code TEXT NOT NULL,
+        reason_detail TEXT,
+        payload_json TEXT,
+        received_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS bridge_outbound_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        adapter_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TEXT NOT NULL,
+        last_error TEXT,
+        status TEXT NOT NULL DEFAULT 'queued',
+        FOREIGN KEY(message_id) REFERENCES messages(id)
+      );
     `)
 
     const cols = this.db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
@@ -172,6 +215,10 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       CREATE INDEX IF NOT EXISTS idx_edict_supersession ON edict_index(superseded_edict_id);
       CREATE INDEX IF NOT EXISTS idx_ti_lookup ON ti_definition_index(target_genre, sealed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_gossip_peer_received ON gossip_log(peer_node_id, received_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_foreign_sync_adapter_foreign_id ON foreign_sync_state(adapter_id, foreign_id);
+      CREATE INDEX IF NOT EXISTS idx_foreign_rejected_adapter_time ON foreign_rejected(adapter_id, received_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_bridge_outbound_available_status ON bridge_outbound_queue(status, available_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_bridge_outbound_message ON bridge_outbound_queue(message_id);
     `)
   }
 
@@ -314,6 +361,17 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       this.db
         .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(5, ?, ?, ?)')
         .run(v5Hash, latestPostV4.migration_hash, new Date().toISOString())
+    }
+
+    const latestPostV5 = this.db.prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1').get() as
+      | { version: number; migration_hash: string }
+      | undefined
+    if (!latestPostV5) return
+    const v6Hash = sha256(`${latestPostV5.migration_hash}:archive-schema-v6-bridge`)
+    if (latestPostV5.version < 6) {
+      this.db
+        .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(6, ?, ?, ?)')
+        .run(v6Hash, latestPostV5.migration_hash, new Date().toISOString())
     }
   }
 
@@ -759,6 +817,127 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     this.db
       .prepare('INSERT INTO gossip_log(message_id, peer_node_id, seal_seq, received_at, kind) VALUES(?, ?, ?, ?, ?)')
       .run(entry.messageId, entry.peerNodeId, entry.sealSeq, entry.receivedAt, entry.kind)
+  }
+
+  appendForeignRejected(entry: ForeignRejectedRecord): void {
+    this.db
+      .prepare(
+        'INSERT INTO foreign_rejected(adapter_id, foreign_id, reason_code, reason_detail, payload_json, received_at) VALUES(?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        entry.adapterId,
+        entry.foreignId ?? null,
+        entry.reasonCode,
+        entry.reasonDetail ?? null,
+        entry.payloadJson ?? null,
+        entry.receivedAt,
+      )
+  }
+
+  upsertForeignSyncState(entry: ForeignSyncStateRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO foreign_sync_state(document_id, adapter_id, adapter_protocol, foreign_id, foreign_vector_clock_json, last_sync_at, conflict_status, last_error)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(document_id) DO UPDATE SET
+           adapter_id = excluded.adapter_id,
+           adapter_protocol = excluded.adapter_protocol,
+           foreign_id = excluded.foreign_id,
+           foreign_vector_clock_json = excluded.foreign_vector_clock_json,
+           last_sync_at = excluded.last_sync_at,
+           conflict_status = excluded.conflict_status,
+           last_error = excluded.last_error`,
+      )
+      .run(
+        entry.documentId,
+        entry.adapterId,
+        entry.adapterProtocol,
+        entry.foreignId,
+        entry.foreignVectorClockJson ?? null,
+        entry.lastSyncAt,
+        entry.conflictStatus,
+        entry.lastError ?? null,
+      )
+  }
+
+  getForeignSyncState(documentId: string): ForeignSyncStateRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT document_id, adapter_id, adapter_protocol, foreign_id, foreign_vector_clock_json, last_sync_at, conflict_status, last_error
+         FROM foreign_sync_state WHERE document_id = ?`,
+      )
+      .get(documentId) as
+      | {
+          document_id: string
+          adapter_id: string
+          adapter_protocol: 'nats' | 'kafka' | 'mqtt'
+          foreign_id: string
+          foreign_vector_clock_json: string | null
+          last_sync_at: string
+          conflict_status: 'resolved' | 'pending' | 'schism'
+          last_error: string | null
+        }
+      | undefined
+    if (!row) return undefined
+    return {
+      documentId: row.document_id,
+      adapterId: row.adapter_id,
+      adapterProtocol: row.adapter_protocol,
+      foreignId: row.foreign_id,
+      foreignVectorClockJson: row.foreign_vector_clock_json ?? undefined,
+      lastSyncAt: row.last_sync_at,
+      conflictStatus: row.conflict_status,
+      lastError: row.last_error ?? undefined,
+    }
+  }
+
+  enqueueBridgeOutbound(adapterId: string, messageId: string, availableAt: string): void {
+    this.db
+      .prepare('INSERT INTO bridge_outbound_queue(adapter_id, message_id, attempts, available_at, status) VALUES(?, ?, 0, ?, ?)')
+      .run(adapterId, messageId, availableAt, 'queued')
+  }
+
+  dequeueBridgeOutbound(nowIso: string, limit: number): BridgeOutboundQueueItem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, adapter_id, message_id, attempts, available_at, last_error, status
+         FROM bridge_outbound_queue
+         WHERE available_at <= ? AND status IN ('queued', 'failed')
+         ORDER BY available_at ASC, id ASC
+         LIMIT ?`,
+      )
+      .all(nowIso, limit) as Array<{
+      id: number
+      adapter_id: string
+      message_id: string
+      attempts: number
+      available_at: string
+      last_error: string | null
+      status: BridgeOutboundQueueItem['status']
+    }>
+    return rows.map((r) => ({
+      id: r.id,
+      adapterId: r.adapter_id,
+      messageId: r.message_id,
+      attempts: r.attempts,
+      availableAt: r.available_at,
+      lastError: r.last_error ?? undefined,
+      status: r.status,
+    }))
+  }
+
+  markBridgeOutboundResult(id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): void {
+    if (status === 'sent') {
+      this.db.prepare('DELETE FROM bridge_outbound_queue WHERE id = ?').run(id)
+      return
+    }
+    this.db
+      .prepare(
+        `UPDATE bridge_outbound_queue
+         SET status = ?, attempts = attempts + 1, last_error = ?, available_at = ?
+         WHERE id = ?`,
+      )
+      .run(status, lastError ?? null, new Date().toISOString(), id)
   }
 
   private indexArchivedMessage(messageId: string, sealedAt: string): void {

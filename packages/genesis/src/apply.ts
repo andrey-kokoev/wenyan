@@ -62,6 +62,10 @@ mode = "${mode}"
 [law_cache]
 ttl_seconds = ${ttl}
 preload_types = [${preload}]
+
+[bridge]
+enabled = ${config.bridge.enabled ? 'true' : 'false'}
+mode = "${config.bridge.mode}"
 `
 }
 
@@ -107,6 +111,21 @@ function defaultConfig(): BootstrapConfig {
       batch_size: 200,
       max_inflight: 4,
       retry_backoff_ms: 300,
+    },
+    bridge: {
+      enabled: false,
+      mode: 'standalone',
+      adapters: [],
+      sync: {
+        mode: 'hybrid',
+        poll_interval_ms: 1000,
+        batch_size: 100,
+      },
+      circuit_breaker: {
+        failure_rate_threshold: 0.05,
+        cool_down_ms: 30_000,
+        max_retries: 10,
+      },
     },
   }
 }

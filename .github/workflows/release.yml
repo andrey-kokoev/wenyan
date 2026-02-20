@@ -61,6 +61,7 @@ jobs:
             --filter @wenyan/gossip \
             --filter @wenyan/crdt \
             --filter @wenyan/consensus \
+            --filter @wenyan/bridge \
             --filter @wenyan/genesis \
             --filter @wenyan/cli \
             publish --no-git-checks --access public

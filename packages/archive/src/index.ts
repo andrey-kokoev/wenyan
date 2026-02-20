@@ -42,6 +42,36 @@ export interface GossipLogEntry {
   kind: 'eager' | 'lazy' | 'repair' | 'imperial'
 }
 
+export interface ForeignSyncStateRecord {
+  documentId: string
+  adapterId: string
+  adapterProtocol: 'nats' | 'kafka' | 'mqtt'
+  foreignId: string
+  foreignVectorClockJson?: string
+  lastSyncAt: string
+  conflictStatus: 'resolved' | 'pending' | 'schism'
+  lastError?: string
+}
+
+export interface ForeignRejectedRecord {
+  adapterId: string
+  foreignId?: string
+  reasonCode: string
+  reasonDetail?: string
+  payloadJson?: string
+  receivedAt: string
+}
+
+export interface BridgeOutboundQueueItem {
+  id: number
+  adapterId: string
+  messageId: string
+  attempts: number
+  availableAt: string
+  lastError?: string
+  status: 'queued' | 'sending' | 'failed' | 'sent'
+}
+
 export interface ArchiveRepository {
   appendMessage(message: MessageEnvelope): void | Promise<void>
   appendTransition(transition: Transition): void | Promise<void>
@@ -68,6 +98,12 @@ export interface ArchiveRepository {
   upsertContentBlob(hash: string, payload: Uint8Array | string): void | Promise<void>
   getContentBlob(hash: string): Uint8Array | undefined | Promise<Uint8Array | undefined>
   appendGossipLog(entry: GossipLogEntry): void | Promise<void>
+  appendForeignRejected(entry: ForeignRejectedRecord): void | Promise<void>
+  upsertForeignSyncState(entry: ForeignSyncStateRecord): void | Promise<void>
+  getForeignSyncState(documentId: string): ForeignSyncStateRecord | undefined | Promise<ForeignSyncStateRecord | undefined>
+  enqueueBridgeOutbound(adapterId: string, messageId: string, availableAt: string): void | Promise<void>
+  dequeueBridgeOutbound(nowIso: string, limit: number): BridgeOutboundQueueItem[] | Promise<BridgeOutboundQueueItem[]>
+  markBridgeOutboundResult(id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): void | Promise<void>
 }
 
 export * from './query'

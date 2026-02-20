@@ -16,6 +16,7 @@ import { syncWithPeer } from '@wenyan/archive/sync';
 import { ReliableChannel } from '@wenyan/channel';
 import { parseBootstrapConfig, type EdictLawType, type LawMode } from '@wenyan/core';
 import { buildGateway, type GatewayRuntimeOptions } from '@wenyan/gateway';
+import { BridgeGateway } from '@wenyan/bridge';
 import { SwimMembership, InMemoryPlumtree, ImperialBroadcast } from '@wenyan/gossip';
 import { PbftConsensus } from '@wenyan/consensus';
 import { mergeEdict, type EdictLike } from '@wenyan/crdt';
@@ -105,6 +106,16 @@ function parseCsv(raw: string | undefined): string[] {
   return raw.split(',').map((v) => v.trim()).filter(Boolean)
 }
 
+function parseBridgeAdapters(raw: string | undefined): Array<Record<string, unknown>> {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed as Array<Record<string, unknown>> : []
+  } catch {
+    return []
+  }
+}
+
 function resolveBootstrap(env: Bindings) {
   return parseBootstrapConfig({
     archive: {
@@ -148,6 +159,21 @@ function resolveBootstrap(env: Bindings) {
       max_inflight: parsePositiveInt(env.WENYAN_SYNC_MAX_INFLIGHT, 4),
       retry_backoff_ms: parsePositiveInt(env.WENYAN_SYNC_RETRY_BACKOFF_MS, 300),
     },
+    bridge: {
+      enabled: env.WENYAN_BRIDGE_ENABLED === 'true',
+      mode: env.WENYAN_BRIDGE_MODE ?? 'standalone',
+      adapters: parseBridgeAdapters(env.WENYAN_BRIDGE_ADAPTERS_JSON),
+      sync: {
+        mode: env.WENYAN_BRIDGE_SYNC_MODE ?? 'hybrid',
+        poll_interval_ms: parsePositiveInt(env.WENYAN_BRIDGE_SYNC_POLL_INTERVAL_MS, 1000),
+        batch_size: parsePositiveInt(env.WENYAN_BRIDGE_SYNC_BATCH_SIZE, 100),
+      },
+      circuit_breaker: {
+        failure_rate_threshold: Number(env.WENYAN_BRIDGE_BREAKER_FAILURE_RATE ?? 0.05),
+        cool_down_ms: parsePositiveInt(env.WENYAN_BRIDGE_BREAKER_COOL_DOWN_MS, 30_000),
+        max_retries: parsePositiveInt(env.WENYAN_BRIDGE_BREAKER_MAX_RETRIES, 10),
+      },
+    },
   });
 }
 
@@ -172,6 +198,7 @@ let wenyanMembership: SwimMembership | undefined;
 let wenyanPlumtree: InMemoryPlumtree | undefined;
 let wenyanImperial: ImperialBroadcast | undefined;
 let wenyanPbft: PbftConsensus | undefined;
+let wenyanBridge: BridgeGateway | undefined;
 const wenyanGatewayOptions: GatewayRuntimeOptions = {
   lawMode: 'strict',
   distributedMode: 'single',
@@ -264,6 +291,18 @@ app.use('*', async (c, next) => {
           viewChangeTimeoutMs: bootstrap.consensus.view_change_timeout_ms,
         });
         wenyanGatewayOptions.pbftConsensus = wenyanPbft;
+      }
+
+      if (bootstrap.bridge.enabled && bootstrap.bridge.mode === 'embedded') {
+        const hasNodeRuntime = typeof process !== 'undefined' && !!process.versions?.node
+        if (hasNodeRuntime) {
+          wenyanBridge = new BridgeGateway({
+            bootstrap,
+            archive: wenyanArchive,
+            apiBaseUrl: `${bootstrap.gateway.upstream ?? `http://${bootstrap.gateway.listen.host}:${bootstrap.gateway.listen.port}`}/api/wenyan`,
+          })
+          await wenyanBridge.start()
+        }
       }
     })()
   }

@@ -25,6 +25,7 @@ If you want to understand the architectural rationale and design principles behi
 - `packages/gossip` (`@wenyan/gossip`) - SWIM/Plumtree-style consort gossip primitives
 - `packages/crdt` (`@wenyan/crdt`) - CRDT reconciliation for legislative conflicts
 - `packages/consensus` (`@wenyan/consensus`) - PBFT lifecycle for constitutional consensus
+- `packages/bridge` (`@wenyan/bridge`) - foreign protocol bridge runtime (standalone Node)
 - `packages/genesis` (`@wenyan/genesis`) - explicit genesis bootstrap (`createEmptyOffice`, `applyGenesis`)
 - `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`
 - `packages/tests` - shared fixtures used by server tests
@@ -51,6 +52,13 @@ If you want to understand the architectural rationale and design principles behi
 - `POST /api/wenyan/mesh/join`
 - `POST /api/wenyan/mesh/sync`
 - `GET /api/wenyan/mesh/merkle-root`
+
+Bridge runtime (standalone):
+
+- `wenyan bridge run [--config wenyan.toml]`
+- `wenyan bridge status [--config wenyan.toml]`
+- `wenyan bridge sync --adapter <id> [--config wenyan.toml]`
+- `wenyan bridge dry-run --adapter <id> --file payload.json [--config wenyan.toml]`
 
 ## Configuration
 
@@ -88,6 +96,15 @@ kind = "none"
 replica_set = []
 constitutional_threshold = 3
 view_change_timeout_ms = 5000
+
+[bridge]
+enabled = false
+mode = "standalone"
+
+[bridge.sync]
+mode = "hybrid"
+poll_interval_ms = 1000
+batch_size = 100
 ```
 
 ## Commands
@@ -103,6 +120,7 @@ view_change_timeout_ms = 5000
 - `wenyan --join gossip://seed:7946`
 - `wenyan sync --peer gossip://seed:7946`
 - `wenyan mesh status`
+- `wenyan bridge run --config wenyan.toml`
 
 ## Installation From GitHub Packages
 
@@ -134,6 +152,7 @@ Published packages in v0.3.x:
 - `@wenyan/gossip`
 - `@wenyan/crdt`
 - `@wenyan/consensus`
+- `@wenyan/bridge`
 - `@wenyan/genesis`
 - `@wenyan/cli`
 

@@ -30,6 +30,12 @@ function fakeArchive(result: TiDefinitionRecord | undefined): ArchiveRepository 
     upsertContentBlob: vi.fn(),
     getContentBlob: vi.fn(),
     appendGossipLog: vi.fn(),
+    appendForeignRejected: vi.fn(),
+    upsertForeignSyncState: vi.fn(),
+    getForeignSyncState: vi.fn(),
+    enqueueBridgeOutbound: vi.fn(),
+    dequeueBridgeOutbound: vi.fn(),
+    markBridgeOutboundResult: vi.fn(),
   } as unknown as ArchiveRepository
 }
 

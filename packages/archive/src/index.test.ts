@@ -174,3 +174,53 @@ describe('archive ti-definition resolution', () => {
     repo.close()
   })
 })
+
+describe('archive bridge persistence', () => {
+  it('persists foreign rejected records, sync state, and outbound queue lifecycle', () => {
+    const repo = repoFor('bridge-state')
+    const now = new Date().toISOString()
+    const msg = message({
+      id: 'bridge-msg-1',
+      genre: 'edict',
+      payload: {
+        law_type: 'regulation',
+        version: '1.0.0',
+        content: { retention_days: 30 },
+        precedence: 0,
+        effective_date: now,
+      },
+    })
+    archive(repo, msg, now)
+
+    repo.appendForeignRejected({
+      adapterId: 'nats-main',
+      foreignId: 'f-1',
+      reasonCode: 'invalid-shape',
+      reasonDetail: 'missing payload field',
+      payloadJson: '{"x":1}',
+      receivedAt: now,
+    })
+
+    repo.upsertForeignSyncState({
+      documentId: msg.id,
+      adapterId: 'nats-main',
+      adapterProtocol: 'nats',
+      foreignId: 'subject.seq.1',
+      foreignVectorClockJson: '{"nats":1}',
+      lastSyncAt: now,
+      conflictStatus: 'resolved',
+    })
+    const state = repo.getForeignSyncState(msg.id)
+    expect(state?.adapterId).toBe('nats-main')
+    expect(state?.foreignId).toBe('subject.seq.1')
+
+    repo.enqueueBridgeOutbound('nats-main', msg.id, now)
+    const queued = repo.dequeueBridgeOutbound(now, 10)
+    expect(queued).toHaveLength(1)
+    expect(queued[0]?.messageId).toBe(msg.id)
+    repo.markBridgeOutboundResult(queued[0]!.id, 'sent')
+    const after = repo.dequeueBridgeOutbound(now, 10)
+    expect(after).toHaveLength(0)
+    repo.close()
+  })
+})

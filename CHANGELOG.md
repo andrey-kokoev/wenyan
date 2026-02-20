@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-02-20
+
+### Added
+- **Bridge Runtime Package**: Added `@wenyan/bridge` as a standalone Node bridge runtime (`wenyan-bridge`) with `IntoWenyan`/`FromWenyan` adapter contracts and sync orchestration primitives.
+- **Adapter Delivery (Staged)**: Added production NATS adapter plus staged Kafka/MQTT adapters with contract-complete lifecycle and deterministic test harness hooks.
+- **Bridge Archive Persistence (v6)**: Added `foreign_sync_state`, `foreign_rejected`, and `bridge_outbound_queue` tables and repository APIs in both SQLite and Cloudflare adapters.
+- **Bridge CLI Commands**: Added `wenyan bridge run`, `wenyan bridge status`, `wenyan bridge sync`, and `wenyan bridge dry-run`.
+- **v0.5 Ritual Tests**: Added bridge e2e tests and ritual harness files for v0.5.0 scenarios.
+
+### Changed
+- **Bootstrap Config**: Extended `wenyan.toml` schema with `[bridge]`, `[bridge.sync]`, `[bridge.circuit_breaker]`, and `[[bridge.adapters]]`.
+- **Server Hook**: Added optional embedded bridge hook in server runtime, disabled by default; single-node API flow remains unchanged.
+- **Bridge Conflict Policy**: Added deterministic cross-system conflict resolution primitives (`lww`, `merge`, `schism`) with Imperial Seal priority for verified Wenyan state.
+
+### Security
+- **Fail-Closed Bridge Startup**: Adapter startup now rejects undefined `target_genre` (no active `ti_definition`).
+- **Forgetting Boundary**: Bridge sanitization keeps only mapped Wenyan fields and drops protocol-native metadata by default.
+
+### Documentation
+- Updated docs/config examples to reflect staged v0.5.0 delivery (NATS production, Kafka/MQTT staged).
+
 ## [0.4.0] - 2026-02-20
 
 ### Added
@@ -73,3 +94,5 @@ All notable changes to this project are documented in this file.
 [0.2.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.2.0
 [0.3.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.3.0
 [0.4.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.4.0
+
+[0.5.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.5.0

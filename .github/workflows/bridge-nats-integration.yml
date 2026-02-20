@@ -1,0 +1,30 @@
+name: Bridge NATS Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  nats-integration:
+    runs-on: ubuntu-latest
+    services:
+      nats:
+        image: nats:2.10-alpine
+        ports:
+          - 4222:4222
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.0
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Run NATS integration
+        env:
+          RUN_NATS_INTEGRATION: "1"
+          NATS_URL: "nats://127.0.0.1:4222"
+        run: pnpm --filter @wenyan/bridge test -- src/nats.integration.test.ts

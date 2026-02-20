@@ -18,6 +18,7 @@ const packages: PkgSpec[] = [
   { name: '@wenyan/gossip', dir: 'packages/gossip' },
   { name: '@wenyan/crdt', dir: 'packages/crdt' },
   { name: '@wenyan/consensus', dir: 'packages/consensus' },
+  { name: '@wenyan/bridge', dir: 'packages/bridge' },
   { name: '@wenyan/genesis', dir: 'packages/genesis' },
   { name: '@wenyan/cli', dir: 'packages/cli' },
 ]

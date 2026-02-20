@@ -56,6 +56,86 @@ const SyncConfigSchema = z.object({
   retry_backoff_ms: z.number().int().positive().default(300),
 })
 
+export const BridgeModeSchema = z.enum(['embedded', 'standalone'])
+export const BridgeProtocolSchema = z.enum(['nats', 'kafka', 'mqtt'])
+export const BridgeSyncModeSchema = z.enum(['poll', 'push', 'hybrid'])
+
+const BaseBridgeAdapterConfigSchema = z.object({
+  id: z.string().min(1),
+  protocol: BridgeProtocolSchema,
+  target_genre: z.string().min(1),
+  trust_provenance: z.boolean().default(false),
+})
+
+const NatsBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
+  protocol: z.literal('nats'),
+  url: z.string().min(1),
+  subject_pattern: z.array(z.string().min(1)).min(1),
+  idempotency_header: z.string().min(1).default('Nats-Msg-Id'),
+})
+
+const KafkaBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
+  protocol: z.literal('kafka'),
+  brokers: z.array(z.string().min(1)).min(1),
+  topics: z.array(z.string().min(1)).min(1),
+  consumer_group: z.string().min(1),
+})
+
+const MqttBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
+  protocol: z.literal('mqtt'),
+  url: z.string().min(1),
+  topics: z.array(z.string().min(1)).min(1),
+  qos: z.number().int().min(0).max(2).default(1),
+})
+
+export const BridgeAdapterConfigSchema = z.discriminatedUnion('protocol', [
+  NatsBridgeAdapterConfigSchema,
+  KafkaBridgeAdapterConfigSchema,
+  MqttBridgeAdapterConfigSchema,
+])
+
+const BridgeSyncConfigSchema = z.object({
+  mode: BridgeSyncModeSchema.default('hybrid'),
+  poll_interval_ms: z.number().int().positive().default(1000),
+  batch_size: z.number().int().positive().default(100),
+})
+
+const BridgeCircuitBreakerSchema = z.object({
+  failure_rate_threshold: z.number().positive().max(1).default(0.05),
+  cool_down_ms: z.number().int().positive().default(30_000),
+  max_retries: z.number().int().nonnegative().default(10),
+})
+
+const BridgeConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    mode: BridgeModeSchema.default('standalone'),
+    adapters: z.array(BridgeAdapterConfigSchema).default([]),
+    sync: BridgeSyncConfigSchema.default({
+      mode: 'hybrid',
+      poll_interval_ms: 1000,
+      batch_size: 100,
+    }),
+    circuit_breaker: BridgeCircuitBreakerSchema.default({
+      failure_rate_threshold: 0.05,
+      cool_down_ms: 30_000,
+      max_retries: 10,
+    }),
+  })
+  .superRefine((val, ctx) => {
+    const seen = new Set<string>()
+    for (const adapter of val.adapters) {
+      if (seen.has(adapter.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['adapters'],
+          message: `duplicate bridge adapter id: ${adapter.id}`,
+        })
+      }
+      seen.add(adapter.id)
+    }
+  })
+
 export const BootstrapConfigSchema = z.object({
   archive: ArchiveConfigSchema,
   genesis: GenesisConfigSchema,
@@ -81,9 +161,30 @@ export const BootstrapConfigSchema = z.object({
     max_inflight: 4,
     retry_backoff_ms: 300,
   }),
+  bridge: BridgeConfigSchema.default({
+    enabled: false,
+    mode: 'standalone',
+    adapters: [],
+    sync: {
+      mode: 'hybrid',
+      poll_interval_ms: 1000,
+      batch_size: 100,
+    },
+    circuit_breaker: {
+      failure_rate_threshold: 0.05,
+      cool_down_ms: 30_000,
+      max_retries: 10,
+    },
+  }),
 })
 
 export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>
+export type BridgeMode = z.infer<typeof BridgeModeSchema>
+export type BridgeProtocol = z.infer<typeof BridgeProtocolSchema>
+export type BridgeAdapterConfig = z.infer<typeof BridgeAdapterConfigSchema>
+export type NatsBridgeAdapterConfig = z.infer<typeof NatsBridgeAdapterConfigSchema>
+export type KafkaBridgeAdapterConfig = z.infer<typeof KafkaBridgeAdapterConfigSchema>
+export type MqttBridgeAdapterConfig = z.infer<typeof MqttBridgeAdapterConfigSchema>
 
 export function parseBootstrapConfigToml(text: string): BootstrapConfig {
   return BootstrapConfigSchema.parse(parseToml(text))
