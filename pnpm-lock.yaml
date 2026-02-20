@@ -284,6 +284,25 @@ importers:
         version: 5.9.3
 
   packages/tests:
+    dependencies:
+      '@wenyan/archive':
+        specifier: workspace:*
+        version: link:../archive
+      '@wenyan/channel':
+        specifier: workspace:*
+        version: link:../channel
+      '@wenyan/core':
+        specifier: workspace:*
+        version: link:../core
+      '@wenyan/gateway':
+        specifier: workspace:*
+        version: link:../gateway
+      '@wenyan/genesis':
+        specifier: workspace:*
+        version: link:../genesis
+      '@wenyan/seal':
+        specifier: workspace:*
+        version: link:../seal
     devDependencies:
       '@types/node':
         specifier: ^25.2.0

@@ -1,5 +1,6 @@
 {
   "name": "@wenyan/shared",
+  "private": true,
   "version": "0.3.0",
   "description": "Shared facade and compatibility types for Wenyan",
   "type": "module",

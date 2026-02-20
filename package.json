@@ -2,9 +2,16 @@
   "name": "wenyan",
   "private": true,
   "version": "0.3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andrey-kokoev/wenyan.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "packageManager": "pnpm@10.6.0",
   "scripts": {
-    "postinstall": "pnpm --filter @wenyan/gateway build",
+    "postinstall": "pnpm -r --filter '!@wenyan/tests' build",
     "build": "pnpm -r build",
     "dev": "pnpm --filter @wenyan/server dev:local",
     "dev:local": "pnpm --filter @wenyan/server dev:local",
@@ -14,6 +21,7 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
+    "release:pack:check": "tsx scripts/release-pack-check.ts",
     "genesis:verify": "tsx scripts/genesis-verify.ts",
     "test:archive:persistence": "tsx scripts/test-archive-persistence.ts",
     "test:seal:crypto": "tsx scripts/test-seal-crypto.ts",

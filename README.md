@@ -79,3 +79,41 @@ mode = "strict"
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm build`
+
+## Installation From GitHub Packages
+
+Authenticate npm for the `@wenyan` scope:
+
+```bash
+export GITHUB_TOKEN=YOUR_GITHUB_TOKEN
+cat > ~/.npmrc <<'EOF'
+@wenyan:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+EOF
+```
+
+Install packages:
+
+```bash
+npm install @wenyan/core @wenyan/cli @wenyan/gateway
+```
+
+Published packages in v0.3.x:
+
+- `@wenyan/core`
+- `@wenyan/actor`
+- `@wenyan/seal`
+- `@wenyan/archive`
+- `@wenyan/pipeline`
+- `@wenyan/gateway`
+- `@wenyan/channel`
+- `@wenyan/genesis`
+- `@wenyan/cli`
+
+## Release Runbook (GitHub Packages)
+
+1. Bump versions as needed in workspace package manifests.
+2. Push changes to `main`.
+3. Create and push tag: `vX.Y.Z`.
+4. Verify `.github/workflows/release.yml` succeeds.
+5. Confirm packages appear in GitHub repository **Packages** section.

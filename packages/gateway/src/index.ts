@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { TiResolver, type ArchiveRepository } from '@wenyan/archive'
-import { constitutionalMerkleRoot, type ReliableChannel } from '@wenyan/channel'
+import { constitutionalMerkleRoot, type ChannelEvent } from '@wenyan/channel'
 import {
   AdmissionLawContentSchema,
   ProtocolLawContentSchema,
@@ -142,6 +142,12 @@ export async function tongzhengSi(
 
 type RepoFactory = ArchiveRepository | (() => ArchiveRepository | Promise<ArchiveRepository>)
 
+interface ChannelLike {
+  subscribe(fn: (event: ChannelEvent) => void): () => void
+  publish(event: ChannelEvent): boolean
+  replay(sinceIso: string): ChannelEvent[]
+}
+
 async function resolveRepo(repoFactory: RepoFactory): Promise<ArchiveRepository> {
   if (typeof repoFactory === 'function') return repoFactory()
   return repoFactory
@@ -149,7 +155,7 @@ async function resolveRepo(repoFactory: RepoFactory): Promise<ArchiveRepository>
 
 export function buildGateway(
   repoFactory: RepoFactory,
-  channel: ReliableChannel,
+  channel: ChannelLike,
   sealContext: SealContext = DEV_SEAL_CONTEXT,
   options: GatewayRuntimeOptions = {},
 ) {

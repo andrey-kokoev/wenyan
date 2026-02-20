@@ -7,8 +7,10 @@ coverage
 .env
 .env.*
 !.env.example
+.npmrc
 .history
 *.sqlite-shm
 *.sqlite-wal
 *.log
 *.dev.vars
+.tmp-pack-check
