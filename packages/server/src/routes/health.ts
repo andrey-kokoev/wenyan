@@ -14,7 +14,7 @@ healthRoutes.get('/', (c) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     environment: c.env.ENVIRONMENT,
-    version: '0.1.0',
+    version: '0.2.0',
   });
 });
 
@@ -26,7 +26,7 @@ healthRoutes.get('/detailed', (c) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     environment: c.env.ENVIRONMENT,
-    version: '0.1.0',
+    version: '0.2.0',
     uptime: Date.now(), // In Workers, this is just current time
     memory: {
       // Cloudflare Workers memory info

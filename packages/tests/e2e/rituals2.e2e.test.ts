@@ -175,7 +175,7 @@ describe('Ritual 14: Censorate Circulation (Kechao)', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         id,
-        genre: 'edict',
+        genre: 'notice',
         payload: { routing: { destination: ['ministry_a', 'ministry_b'], broadcast: true } },
         actor: { id: 'imperial_secretariat', role: 'admin' },
         submittedAt: new Date().toISOString(),
@@ -204,7 +204,7 @@ describe('Ritual 16: Errata Slip (Gaiding)', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         id: originalId,
-        genre: 'edict',
+        genre: 'dispatch',
         payload: { recipient: 'wrong-ministry' },
         actor: { id: 'secretariat', role: 'admin' },
         submittedAt: new Date().toISOString(),

@@ -1,9 +1,24 @@
 import { Hono } from 'hono'
 import type { ArchiveRepository } from '@wenyan/archive'
 import type { ReliableChannel } from '@wenyan/channel'
-import { validateEnvelope, validateTiDefinition } from '@wenyan/core'
+import {
+  AdmissionLawContentSchema,
+  ProtocolLawContentSchema,
+  validateEdict,
+  validateEnvelope,
+  validateTiDefinition,
+  type EdictLawType,
+  type LawMode,
+} from '@wenyan/core'
 import { DEV_SEAL_CONTEXT, type SealContext } from '@wenyan/seal'
-import { SealInvalidError, finalizePendingMessage, processDocketMessage } from '@wenyan/pipeline'
+import {
+  LawResolver,
+  SealInvalidError,
+  finalizePendingMessage,
+  loadLawContent,
+  processDocketMessage,
+  type LawResolverEvent,
+} from '@wenyan/pipeline'
 
 function isZodLikeError(error: unknown): error is { issues: unknown[] } {
   return Boolean(
@@ -21,11 +36,24 @@ function requiredOffices(message: { payload: Record<string, unknown> }): string[
   return []
 }
 
+export interface GatewayRuntimeOptions {
+  lawMode?: LawMode
+  lawCacheTtlSeconds?: number
+  lawPreloadTypes?: EdictLawType[]
+  onLawEvent?: (event: LawResolverEvent) => void
+  lawResolver?: LawResolver
+}
+
 async function validateByArchivedTi(repo: ArchiveRepository, message: ReturnType<typeof validateEnvelope>) {
   if (message.genre === 'ti_definition') {
     validateTiDefinition(message)
     return
   }
+  if (message.genre === 'edict') {
+    validateEdict(message)
+    return
+  }
+
   const schema = await repo.getActiveGenreSchema(message.genre)
   if (!schema) return
   const required = Array.isArray(schema.required) ? schema.required : []
@@ -36,9 +64,62 @@ async function validateByArchivedTi(repo: ArchiveRepository, message: ReturnType
   }
 }
 
-export async function tongzhengSi (repo: ArchiveRepository, input: unknown) {
+async function admissionCheck(
+  resolver: LawResolver,
+  message: ReturnType<typeof validateEnvelope>,
+): Promise<void> {
+  if (message.genre === 'ti_definition' || message.genre === 'edict') {
+    return
+  }
+
+  const law = await loadLawContent({
+    resolver,
+    lawType: 'admission',
+    schema: AdmissionLawContentSchema,
+    strictErrors: {
+      missing: 'law-missing-admission',
+      ambiguous: 'law-ambiguous-admission',
+      invalid: 'law-invalid-admission',
+    },
+  })
+  if (!law.ok) {
+    throw new Error(law.error)
+  }
+  if (!law.content) return
+
+  const allowed = law.content.allowed_genres
+  if (!allowed.includes('*') && !allowed.includes(message.genre)) {
+    throw new Error('genre-not-admitted')
+  }
+}
+
+async function protocolRequiredAcks(resolver: LawResolver, message: { genre: string; payload: Record<string, unknown> }): Promise<number> {
+  const base = requiredOffices(message).length || 1
+  const law = await loadLawContent({
+    resolver,
+    lawType: 'protocol',
+    schema: ProtocolLawContentSchema,
+    strictErrors: {
+      missing: 'law-missing-protocol',
+      ambiguous: 'law-ambiguous-protocol',
+      invalid: 'law-invalid-protocol',
+    },
+  })
+  if (!law.ok) {
+    throw new Error(law.error)
+  }
+  if (!law.content) return base
+  return law.content.required_acks_by_genre[message.genre] ?? base
+}
+
+export async function tongzhengSi(
+  repo: ArchiveRepository,
+  resolver: LawResolver,
+  input: unknown,
+) {
   const message = validateEnvelope(input)
   await validateByArchivedTi(repo, message)
+  await admissionCheck(resolver, message)
   return message
 }
 
@@ -49,14 +130,38 @@ async function resolveRepo(repoFactory: RepoFactory): Promise<ArchiveRepository>
   return repoFactory
 }
 
-export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel, sealContext: SealContext = DEV_SEAL_CONTEXT) {
+export function buildGateway(
+  repoFactory: RepoFactory,
+  channel: ReliableChannel,
+  sealContext: SealContext = DEV_SEAL_CONTEXT,
+  options: GatewayRuntimeOptions = {},
+) {
   const app = new Hono()
+  let runtimeRepo: ArchiveRepository | undefined
+  let runtimeResolver: LawResolver | undefined = options.lawResolver
+
+  async function resolveRuntime(): Promise<{ repo: ArchiveRepository; resolver: LawResolver }> {
+    const repo = await resolveRepo(repoFactory)
+    if (!runtimeResolver || runtimeRepo !== repo) {
+      runtimeResolver =
+        options.lawResolver ??
+        new LawResolver(repo, {
+          mode: options.lawMode ?? 'compat',
+          cacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
+          preloadTypes: options.lawPreloadTypes,
+          onEvent: options.onLawEvent,
+        })
+      runtimeRepo = repo
+      await runtimeResolver.preload()
+    }
+    return { repo, resolver: runtimeResolver }
+  }
 
   app.post('/messages', async (c) => {
     try {
       const nowIso = new Date().toISOString()
       const idempotencyKey = c.req.header('x-idempotency-key')
-      const repo = await resolveRepo(repoFactory)
+      const { repo, resolver } = await resolveRuntime()
       if (idempotencyKey) {
         const existing = await repo.getIdempotency(idempotencyKey, nowIso)
         if (existing) {
@@ -65,14 +170,20 @@ export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel,
       }
 
       const body = await c.req.json()
-      const message = await tongzhengSi(repo, body)
+      const message = await tongzhengSi(repo, resolver, body)
 
       await repo.appendMessage(message)
       await repo.enqueueDocket(message.id)
 
       const item = await repo.dequeueDocket(new Date().toISOString())
       if (item) {
-        const result = await processDocketMessage(repo, item.messageId, sealContext)
+        const result = await processDocketMessage(repo, item.messageId, sealContext, {
+          lawResolver: resolver,
+          lawMode: options.lawMode ?? 'compat',
+          lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
+          lawPreloadTypes: options.lawPreloadTypes,
+          onLawEvent: options.onLawEvent,
+        })
         const transitions = await repo.getTransitions(item.messageId)
         const last = transitions[transitions.length - 1]
         channel.publish({
@@ -99,6 +210,12 @@ export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel,
       if (error instanceof Error && error.message === 'schema-noncompliant') {
         return c.json({ error: 'schema-noncompliant' }, 400)
       }
+      if (error instanceof Error && error.message === 'genre-not-admitted') {
+        return c.json({ error: 'genre-not-admitted' }, 403)
+      }
+      if (error instanceof Error && error.message.startsWith('law-')) {
+        return c.json({ error: error.message }, 503)
+      }
       if (error instanceof SealInvalidError) {
         return c.json({ error: 'invalid-seal-chain' }, 403)
       }
@@ -107,7 +224,7 @@ export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel,
   })
 
   app.post('/messages/:id/approvals', async (c) => {
-    const repo = await resolveRepo(repoFactory)
+    const { repo, resolver } = await resolveRuntime()
     const id = c.req.param('id')
     const message = await repo.getMessage(id)
     if (!message) return c.json({ error: 'not-found' }, 404)
@@ -116,45 +233,55 @@ export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel,
     const office = body.office
     if (!office) return c.json({ error: 'office-required' }, 400)
 
-    const required = requiredOffices(message)
-    if (!required.includes(office)) {
+    const requiredOfficesList = requiredOffices(message)
+    if (!requiredOfficesList.includes(office)) {
       return c.json({ error: 'office-not-required' }, 400)
     }
 
     await repo.addOfficeApproval(id, office)
     const approvals = await repo.getOfficeApprovals(id)
 
-    if (approvals.length < required.length) {
-      return c.json({ state: 'pending', approvals, required }, 200)
+    const requiredCount = await protocolRequiredAcks(resolver, message)
+    if (approvals.length < requiredCount) {
+      return c.json({ state: 'pending', approvals, required: requiredCount }, 200)
     }
 
     try {
-      const result = await finalizePendingMessage(repo, id, sealContext)
-      return c.json({ state: result.finalState, approvals, required }, 200)
+      const result = await finalizePendingMessage(repo, id, sealContext, {
+        lawResolver: resolver,
+        lawMode: options.lawMode ?? 'compat',
+        lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
+        lawPreloadTypes: options.lawPreloadTypes,
+        onLawEvent: options.onLawEvent,
+      })
+      return c.json({ state: result.finalState, approvals, required: requiredCount }, 200)
     } catch (error) {
       if (error instanceof SealInvalidError) {
         return c.json({ error: 'invalid-seal-chain' }, 403)
+      }
+      if (error instanceof Error && error.message.startsWith('law-')) {
+        return c.json({ error: error.message }, 503)
       }
       return c.json({ error: 'internal-error' }, 500)
     }
   })
 
   app.get('/messages/:id', (c) => {
-    const repoPromise = resolveRepo(repoFactory)
+    const runtimePromise = resolveRuntime()
     return (async () => {
-    const id = c.req.param('id')
-    const repo = await repoPromise
-    const message = await repo.getMessage(id)
-    if (!message) {
-      return c.json({ error: 'not-found' }, 404)
-    }
-    return c.json({
-      message,
-      state: (await repo.snapshotState(id)) ?? 'pending',
-      transitions: await repo.getTransitions(id),
-      seals: await repo.getSeals(id),
-      approvals: await repo.getOfficeApprovals(id),
-    })
+      const id = c.req.param('id')
+      const { repo } = await runtimePromise
+      const message = await repo.getMessage(id)
+      if (!message) {
+        return c.json({ error: 'not-found' }, 404)
+      }
+      return c.json({
+        message,
+        state: (await repo.snapshotState(id)) ?? 'pending',
+        transitions: await repo.getTransitions(id),
+        seals: await repo.getSeals(id),
+        approvals: await repo.getOfficeApprovals(id),
+      })
     })()
   })
 

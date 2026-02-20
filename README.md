@@ -1,26 +1,32 @@
 # Wenyan
 
-Wenyan is a Cloudflare Hono monorepo with a Wenyan runtime architecture.
+Wenyan is an API-only Cloudflare Hono monorepo implementing the Wenyan runtime architecture.
 
 ## Packages
 
 - `packages/server` (`@wenyan/server`) - Cloudflare Hono server
 - `packages/shared` (`@wenyan/shared`) - compatibility/shared facade
-- `packages/core` (`@wenyan/core`) - schemas, envelope types, state transitions
-- `packages/actor` (`@wenyan/actor`) - role and permission matrix
+- `packages/core` (`@wenyan/core`) - schemas, envelope types, state transitions, bootstrap/law schemas
+- `packages/actor` (`@wenyan/actor`) - law-driven actor permission helpers
 - `packages/seal` (`@wenyan/seal`) - seal chain primitives and verification
-- `packages/archive` (`@wenyan/archive`) - append-only archive repository API
-- `packages/pipeline` (`@wenyan/pipeline`) - Caoni/Shenfu/Pizhun stages
-- `packages/gateway` (`@wenyan/gateway`) - gateway routes and input filter
+- `packages/archive` (`@wenyan/archive`) - append-only archive repository API + law/genre lookup
+- `packages/pipeline` (`@wenyan/pipeline`) - Caoni/Shenfu/Pizhun stages + law resolver
+- `packages/gateway` (`@wenyan/gateway`) - gateway routes and Tongzheng Si input filter
 - `packages/channel` (`@wenyan/channel`) - reliable local broadcast channel
-- `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for submit/status/stream/query
+- `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`
 - `packages/tests` - shared fixtures used by server tests
 
 ## Storage adapters
 
-- `sqlite` adapter
-- `cloudflare` adapter (D1-backed)
-- `memory` adapter
+- `sqlite` adapter (local Dang'an)
+- `cloudflare` adapter (D1-backed Dang'an)
+- `memory` adapter (test fallback)
+
+## Law In Dang'an
+
+- Runtime law/config for admission/appointment/classification/routing/protocol/regulation is archived as sealed `genre: "edict"` documents.
+- Genre schema registry is archived as sealed `genre: "ti_definition"` documents.
+- Static filesystem config is bootstrap-only (`wenyan.toml`): archive engine/path, genesis identity/key, gateway bind, and optional law cache tuning.
 
 ## Runtime endpoints
 
@@ -33,6 +39,25 @@ Wenyan is a Cloudflare Hono monorepo with a Wenyan runtime architecture.
 
 - `wenyan.toml`
 - `wenyan.toml.example`
+
+Minimal shape:
+
+```toml
+[archive]
+engine = "sqlite"
+path = "./wenyan.dang'an"
+
+[genesis]
+node_id = "11111111-1111-4111-8111-111111111111"
+genesis_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+[gateway.listen]
+host = "127.0.0.1"
+port = 8787
+
+[law]
+mode = "compat"
+```
 
 ## Commands
 

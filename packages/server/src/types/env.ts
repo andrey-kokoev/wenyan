@@ -37,6 +37,18 @@ export interface Bindings {
 
   // Frontend URL
   FRONTEND_URL?: string // Frontend URL for redirects
+
+  // Wenyan bootstrap/runtime override vars
+  WENYAN_ARCHIVE_ENGINE?: "sqlite" | "cloudflare"
+  WENYAN_ARCHIVE_PATH?: string
+  WENYAN_LAW_MODE?: "compat" | "strict"
+  WENYAN_LAW_CACHE_TTL_SECONDS?: string
+  WENYAN_LAW_PRELOAD_TYPES?: string
+  WENYAN_NODE_ID?: string
+  WENYAN_GENESIS_KEY?: string
+  WENYAN_GATEWAY_HOST?: string
+  WENYAN_GATEWAY_PORT?: string
+  WENYAN_UPSTREAM?: string
 }
 
 /**

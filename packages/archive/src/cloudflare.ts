@@ -1,4 +1,12 @@
-import { canTransition, type MessageEnvelope, type MessageState, type Transition } from '@wenyan/core'
+import {
+  canTransition,
+  EdictLawTypeValues,
+  type EdictLawType,
+  type MessageEnvelope,
+  type MessageState,
+  type ResolvedLaw,
+  type Transition,
+} from '@wenyan/core'
 import type { SealRecord } from '@wenyan/seal'
 import type { ArchiveRepository, DocketItem } from './index'
 
@@ -36,9 +44,12 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     await this.db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
+        genre TEXT,
         payload_json TEXT NOT NULL,
         seal_chain_json TEXT NOT NULL DEFAULT '[]',
-        received_at TEXT NOT NULL
+        received_at TEXT NOT NULL,
+        submitted_at TEXT,
+        archived_at TEXT
       );
       CREATE TABLE IF NOT EXISTS transitions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,6 +100,37 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         prev_hash TEXT,
         applied_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS edict_index (
+        message_id TEXT PRIMARY KEY,
+        law_type TEXT NOT NULL,
+        version TEXT NOT NULL,
+        content_json TEXT NOT NULL,
+        precedence INTEGER NOT NULL,
+        effective_date TEXT NOT NULL,
+        superseded_edict_id TEXT,
+        sealed_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ti_definition_index (
+        message_id TEXT PRIMARY KEY,
+        target_genre TEXT NOT NULL,
+        version TEXT NOT NULL,
+        schema_json TEXT NOT NULL,
+        superseded_by TEXT,
+        sealed_at TEXT NOT NULL
+      );
+    `)
+
+    await this.tryExec('ALTER TABLE messages ADD COLUMN genre TEXT')
+    await this.tryExec('ALTER TABLE messages ADD COLUMN submitted_at TEXT')
+    await this.tryExec('ALTER TABLE messages ADD COLUMN archived_at TEXT')
+
+    await this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_messages_genre ON messages(genre);
+      CREATE INDEX IF NOT EXISTS idx_edict_lookup ON edict_index(law_type, effective_date DESC, precedence DESC, sealed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_edict_supersession ON edict_index(superseded_edict_id);
+      CREATE INDEX IF NOT EXISTS idx_ti_lookup ON ti_definition_index(target_genre, sealed_at DESC);
     `)
   }
 
@@ -115,12 +157,87 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         .bind(v2Hash, latest.migration_hash, new Date().toISOString())
         .run()
     }
+
+    const latestPostV2 = await this.db
+      .prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1')
+      .bind()
+      .first<{ version: number; migration_hash: string }>()
+    if (!latestPostV2) return
+
+    const v3Hash = sha256(`${latestPostV2.migration_hash}:archive-schema-v3-law-indexes`)
+    if (latestPostV2.version < 3) {
+      await this.db.exec(`
+        UPDATE messages
+        SET genre = COALESCE(genre, json_extract(payload_json, '$.genre'));
+
+        UPDATE messages
+        SET submitted_at = COALESCE(submitted_at, json_extract(payload_json, '$.submittedAt'), received_at);
+
+        UPDATE messages
+        SET archived_at = (
+          SELECT MAX(COALESCE(sealed_at, at))
+          FROM transitions
+          WHERE transitions.message_id = messages.id
+            AND transitions.to_state = 'archived'
+        )
+        WHERE archived_at IS NULL;
+      `)
+
+      await this.db.exec(`
+        INSERT INTO edict_index(message_id, law_type, version, content_json, precedence, effective_date, superseded_edict_id, sealed_at)
+        SELECT
+          id,
+          json_extract(payload_json, '$.payload.law_type'),
+          COALESCE(json_extract(payload_json, '$.payload.version'), '1.0.0'),
+          COALESCE(json_extract(payload_json, '$.payload.content'), '{}'),
+          COALESCE(json_extract(payload_json, '$.payload.precedence'), 0),
+          COALESCE(json_extract(payload_json, '$.payload.effective_date'), submitted_at, received_at),
+          json_extract(payload_json, '$.payload.superseded_edict_id'),
+          archived_at
+        FROM messages
+        WHERE genre = 'edict'
+          AND archived_at IS NOT NULL
+        ON CONFLICT(message_id) DO UPDATE SET
+          law_type = excluded.law_type,
+          version = excluded.version,
+          content_json = excluded.content_json,
+          precedence = excluded.precedence,
+          effective_date = excluded.effective_date,
+          superseded_edict_id = excluded.superseded_edict_id,
+          sealed_at = excluded.sealed_at;
+      `)
+
+      await this.db.exec(`
+        INSERT INTO ti_definition_index(message_id, target_genre, version, schema_json, superseded_by, sealed_at)
+        SELECT
+          id,
+          json_extract(payload_json, '$.payload.target_genre'),
+          COALESCE(json_extract(payload_json, '$.payload.version'), '1.0.0'),
+          COALESCE(json_extract(payload_json, '$.payload.schema'), '{}'),
+          json_extract(payload_json, '$.payload.superseded_by'),
+          archived_at
+        FROM messages
+        WHERE genre = 'ti_definition'
+          AND archived_at IS NOT NULL
+        ON CONFLICT(message_id) DO UPDATE SET
+          target_genre = excluded.target_genre,
+          version = excluded.version,
+          schema_json = excluded.schema_json,
+          superseded_by = excluded.superseded_by,
+          sealed_at = excluded.sealed_at;
+      `)
+
+      await this.db
+        .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(3, ?, ?, ?)')
+        .bind(v3Hash, latestPostV2.migration_hash, new Date().toISOString())
+        .run()
+    }
   }
 
   async appendMessage(message: MessageEnvelope): Promise<void> {
     await this.db
-      .prepare('INSERT INTO messages(id, payload_json, seal_chain_json, received_at) VALUES(?, ?, ?, ?)')
-      .bind(message.id, JSON.stringify(message), '[]', new Date().toISOString())
+      .prepare('INSERT INTO messages(id, genre, payload_json, seal_chain_json, received_at, submitted_at) VALUES(?, ?, ?, ?, ?, ?)')
+      .bind(message.id, message.genre, JSON.stringify(message), '[]', new Date().toISOString(), message.submittedAt)
       .run()
   }
 
@@ -167,6 +284,12 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         transition.at,
       )
       .run()
+
+    if (transition.toState === 'archived') {
+      const sealedAt = transition.sealedAt ?? transition.at
+      await this.db.prepare('UPDATE messages SET archived_at = ? WHERE id = ?').bind(sealedAt, transition.messageId).run()
+      await this.indexArchivedMessage(transition.messageId, sealedAt)
+    }
   }
 
   async appendSeal(seal: SealRecord): Promise<void> {
@@ -317,20 +440,153 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
   async getActiveGenreSchema(targetGenre: string): Promise<Record<string, unknown> | undefined> {
     const row = await this.db
       .prepare(
-        `SELECT payload_json
-         FROM messages
-         WHERE json_extract(payload_json, '$.genre') = 'ti_definition'
-           AND json_extract(payload_json, '$.payload.target_genre') = ?
-           AND json_extract(payload_json, '$.payload.superseded_by') IS NULL
-         ORDER BY received_at DESC
+        `SELECT t.schema_json
+         FROM ti_definition_index t
+         WHERE t.target_genre = ?
+           AND NOT EXISTS (
+            SELECT 1 FROM ti_definition_index s
+            WHERE s.target_genre = t.target_genre
+              AND s.superseded_by = t.message_id
+           )
+         ORDER BY t.sealed_at DESC, t.message_id DESC
          LIMIT 1`,
       )
       .bind(targetGenre)
-      .first<{ payload_json?: string }>()
-    if (!row?.payload_json) return undefined
-    const envelope = JSON.parse(row.payload_json) as MessageEnvelope
-    const payload = envelope.payload as Record<string, unknown>
-    if (!payload || typeof payload.schema !== 'object' || payload.schema === null) return undefined
-    return payload.schema as Record<string, unknown>
+      .first<{ schema_json?: string }>()
+    if (!row?.schema_json) return undefined
+    const schema = JSON.parse(row.schema_json) as Record<string, unknown>
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return undefined
+    return schema
+  }
+
+  async getCurrentLaw(lawType: EdictLawType, atIso: string): Promise<ResolvedLaw | undefined> {
+    const rows = await this.db
+      .prepare(
+        `SELECT
+           e.message_id,
+           e.law_type,
+           e.version,
+           e.content_json,
+           e.precedence,
+           e.effective_date,
+           e.sealed_at
+         FROM edict_index e
+         WHERE e.law_type = ?
+           AND e.effective_date <= ?
+           AND e.sealed_at IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM edict_index s
+             WHERE s.law_type = e.law_type
+               AND s.superseded_edict_id = e.message_id
+               AND s.effective_date <= ?
+               AND s.sealed_at IS NOT NULL
+           )
+         ORDER BY e.precedence DESC, e.effective_date DESC, e.sealed_at DESC, e.message_id DESC
+         LIMIT 2`,
+      )
+      .bind(lawType, atIso, atIso)
+      .all<Array<Record<string, unknown>>>()
+
+    const resultRows = (rows as { results: Array<Record<string, unknown>> }).results
+    if (resultRows.length === 0) return undefined
+    if (resultRows.length > 1) {
+      const a = resultRows[0]
+      const b = resultRows[1]
+      if (
+        Number(a.precedence) === Number(b.precedence) &&
+        String(a.effective_date) === String(b.effective_date) &&
+        String(a.sealed_at) === String(b.sealed_at)
+      ) {
+        throw new Error('ambiguous-law')
+      }
+    }
+
+    const top = resultRows[0]
+    return {
+      messageId: String(top.message_id),
+      lawType: String(top.law_type) as EdictLawType,
+      version: String(top.version),
+      content: JSON.parse(String(top.content_json)) as Record<string, unknown>,
+      precedence: Number(top.precedence),
+      effectiveDate: String(top.effective_date),
+      sealedAt: String(top.sealed_at),
+    }
+  }
+
+  async getLawSet(atIso: string): Promise<Record<EdictLawType, ResolvedLaw | undefined>> {
+    const out = {} as Record<EdictLawType, ResolvedLaw | undefined>
+    for (const lawType of EdictLawTypeValues) {
+      out[lawType] = await this.getCurrentLaw(lawType, atIso)
+    }
+    return out
+  }
+
+  private async indexArchivedMessage(messageId: string, sealedAt: string): Promise<void> {
+    const message = await this.getMessage(messageId)
+    if (!message) return
+
+    if (message.genre === 'edict') {
+      const payload = message.payload as Record<string, unknown>
+      const lawType = payload.law_type
+      if (typeof lawType !== 'string') return
+      await this.db
+        .prepare(
+          `INSERT INTO edict_index(message_id, law_type, version, content_json, precedence, effective_date, superseded_edict_id, sealed_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(message_id) DO UPDATE SET
+             law_type = excluded.law_type,
+             version = excluded.version,
+             content_json = excluded.content_json,
+             precedence = excluded.precedence,
+             effective_date = excluded.effective_date,
+             superseded_edict_id = excluded.superseded_edict_id,
+             sealed_at = excluded.sealed_at`,
+        )
+        .bind(
+          messageId,
+          lawType,
+          String(payload.version ?? '1.0.0'),
+          JSON.stringify((payload.content ?? {}) as Record<string, unknown>),
+          Number(payload.precedence ?? 0),
+          String(payload.effective_date ?? message.submittedAt),
+          payload.superseded_edict_id ? String(payload.superseded_edict_id) : null,
+          sealedAt,
+        )
+        .run()
+    }
+
+    if (message.genre === 'ti_definition') {
+      const payload = message.payload as Record<string, unknown>
+      const targetGenre = payload.target_genre
+      if (typeof targetGenre !== 'string') return
+      await this.db
+        .prepare(
+          `INSERT INTO ti_definition_index(message_id, target_genre, version, schema_json, superseded_by, sealed_at)
+           VALUES(?, ?, ?, ?, ?, ?)
+           ON CONFLICT(message_id) DO UPDATE SET
+             target_genre = excluded.target_genre,
+             version = excluded.version,
+             schema_json = excluded.schema_json,
+             superseded_by = excluded.superseded_by,
+             sealed_at = excluded.sealed_at`,
+        )
+        .bind(
+          messageId,
+          targetGenre,
+          String(payload.version ?? '1.0.0'),
+          JSON.stringify((payload.schema ?? {}) as Record<string, unknown>),
+          payload.superseded_by ? String(payload.superseded_by) : null,
+          sealedAt,
+        )
+        .run()
+    }
+  }
+
+  private async tryExec(sql: string): Promise<void> {
+    try {
+      await this.db.exec(sql)
+    } catch {
+      // Column may already exist on adapters that do not support IF NOT EXISTS for ALTER TABLE.
+    }
   }
 }

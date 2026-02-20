@@ -16,7 +16,7 @@ describe('Wenyan Server API', () => {
     
     const json = await res.json();
     expect(json.message).toBe('Wenyan Server API');
-    expect(json.version).toBe('0.1.0');
+    expect(json.version).toBe('0.2.0');
   });
 
   it('should respond to health check', async () => {

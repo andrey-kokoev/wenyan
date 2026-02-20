@@ -10,7 +10,7 @@ Wenyan does not execute business logic. The pipeline validates document structur
 
 Wenyan does not provide graphical interfaces. The CLI supports composition and inspection; dashboards, drag-and-drop workflow builders, and mobile applications are external consumers of the archive API.
 
-Wenyan does not integrate enterprise databases. SQLite is the sole supported storage engine. Adapters for PostgreSQL, Redis, or object storage are explicitly out of scope for the initial object.
+Wenyan does not integrate enterprise databases. The supported storage adapters are local SQLite and Cloudflare D1 for the same archive contract. Adapters for PostgreSQL, Redis, or object storage are explicitly out of scope for the initial object.
 
 Adjacent Development Directions
 

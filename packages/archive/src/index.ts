@@ -1,4 +1,12 @@
-import { canTransition, type MessageEnvelope, type MessageState, type Transition } from '@wenyan/core'
+import {
+  canTransition,
+  EdictLawTypeValues,
+  type EdictLawType,
+  type MessageEnvelope,
+  type MessageState,
+  type ResolvedLaw,
+  type Transition,
+} from '@wenyan/core'
 import type { SealRecord } from '@wenyan/seal'
 
 export interface DocketItem {
@@ -30,6 +38,8 @@ export interface ArchiveRepository {
   getOfficeApprovals(messageId: string): string[] | Promise<string[]>
   stateAt(messageId: string, timestampIso: string): MessageState | undefined | Promise<MessageState | undefined>
   getActiveGenreSchema(targetGenre: string): Record<string, unknown> | undefined | Promise<Record<string, unknown> | undefined>
+  getCurrentLaw(lawType: EdictLawType, atIso: string): ResolvedLaw | undefined | Promise<ResolvedLaw | undefined>
+  getLawSet(atIso: string): Record<EdictLawType, ResolvedLaw | undefined> | Promise<Record<EdictLawType, ResolvedLaw | undefined>>
 }
 
 export class InMemoryArchiveRepository implements ArchiveRepository {
@@ -130,13 +140,89 @@ export class InMemoryArchiveRepository implements ArchiveRepository {
   }
 
   getActiveGenreSchema(targetGenre: string): Record<string, unknown> | undefined {
-    const defs = Array.from(this.messages.values())
+    const defsAll = Array.from(this.messages.values())
       .filter((m) => m.genre === 'ti_definition')
-      .map((m) => m.payload as Record<string, unknown>)
-      .filter((p) => p.target_genre === targetGenre && !p.superseded_by)
-    const latest = defs.at(-1)
+      .map((m) => ({
+        messageId: m.id,
+        submittedAt: m.submittedAt,
+        payload: m.payload as Record<string, unknown>,
+      }))
+      .filter((p) => p.payload.target_genre === targetGenre && this.snapshotState(p.messageId) === 'archived')
+    const defs = defsAll
+      .filter(
+        (p) =>
+          !defsAll.some((other) => {
+            const payload = other.payload as Record<string, unknown>
+            return payload.target_genre === targetGenre && payload.superseded_by === p.messageId
+          }),
+      )
+      .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt))
+    const latest = defs.at(-1)?.payload
     if (!latest || typeof latest.schema !== 'object' || latest.schema === null) return undefined
     return latest.schema as Record<string, unknown>
+  }
+
+  getCurrentLaw(lawType: EdictLawType, atIso: string): ResolvedLaw | undefined {
+    const edictsAll = Array.from(this.messages.values())
+      .filter((m) => m.genre === 'edict')
+      .map((m) => {
+        const payload = m.payload as Record<string, unknown>
+        const transitions = this.getTransitions(m.id)
+        const archivedTransition = [...transitions].reverse().find((t) => t.toState === 'archived')
+        return {
+          messageId: m.id,
+          lawType: payload.law_type,
+          version: payload.version,
+          content: payload.content,
+          precedence: Number(payload.precedence ?? 0),
+          effectiveDate: String(payload.effective_date ?? ''),
+          superseded: payload.superseded_edict_id ? String(payload.superseded_edict_id) : undefined,
+          sealedAt: archivedTransition?.sealedAt ?? archivedTransition?.at,
+        }
+      })
+      .filter((e) => e.lawType === lawType)
+      .filter((e) => !!e.sealedAt && e.effectiveDate <= atIso)
+    const edicts = edictsAll
+      .filter((e) => !edictsAll.some((s) => s.lawType === lawType && s.superseded === e.messageId && s.effectiveDate <= atIso && !!s.sealedAt))
+      .sort((a, b) => {
+        if (a.precedence !== b.precedence) return b.precedence - a.precedence
+        if (a.effectiveDate !== b.effectiveDate) return b.effectiveDate.localeCompare(a.effectiveDate)
+        if ((a.sealedAt ?? '') !== (b.sealedAt ?? '')) return (b.sealedAt ?? '').localeCompare(a.sealedAt ?? '')
+        return b.messageId.localeCompare(a.messageId)
+      })
+
+    if (edicts.length === 0) return undefined
+    if (edicts.length > 1) {
+      const first = edicts[0]
+      const second = edicts[1]
+      if (
+        first.precedence === second.precedence &&
+        first.effectiveDate === second.effectiveDate &&
+        first.sealedAt === second.sealedAt
+      ) {
+        throw new Error('ambiguous-law')
+      }
+    }
+
+    const top = edicts[0]
+    if (!top || !top.sealedAt) return undefined
+    return {
+      messageId: top.messageId,
+      lawType: top.lawType as EdictLawType,
+      version: String(top.version ?? ''),
+      content: (top.content ?? {}) as Record<string, unknown>,
+      precedence: top.precedence,
+      effectiveDate: top.effectiveDate,
+      sealedAt: top.sealedAt,
+    }
+  }
+
+  getLawSet(atIso: string): Record<EdictLawType, ResolvedLaw | undefined> {
+    const out = {} as Record<EdictLawType, ResolvedLaw | undefined>
+    for (const lawType of EdictLawTypeValues) {
+      out[lawType] = this.getCurrentLaw(lawType, atIso)
+    }
+    return out
   }
 }
 

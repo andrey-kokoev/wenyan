@@ -11,7 +11,7 @@ export const MessageStateSchema = z.enum([
 
 export const ActorSchema = z.object({
   id: z.string().min(1),
-  role: z.enum(['scribe', 'reviewer', 'approver', 'archivist', 'admin']),
+  role: z.string().min(1),
 })
 
 export const MessageEnvelopeSchema = z.object({

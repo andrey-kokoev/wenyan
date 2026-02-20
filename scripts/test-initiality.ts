@@ -27,11 +27,13 @@ async function main(): Promise<void> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(envelope),
   })
-  if (submit.status !== 202) {
+  if (submit.status !== 201 && submit.status !== 202) {
     throw new Error(`Submit failed: ${submit.status}`)
   }
+  const submitBody = (await submit.json()) as { id?: string }
+  const messageId = submitBody.id ?? envelope.id
 
-  const statusRes = await app.request(`/messages/${envelope.id}`)
+  const statusRes = await app.request(`/messages/${encodeURIComponent(messageId)}`)
   if (statusRes.status !== 200) {
     throw new Error(`Status failed: ${statusRes.status}`)
   }

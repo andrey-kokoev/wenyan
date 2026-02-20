@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { readFileSync } from 'node:fs'
+import { parseBootstrapConfigToml } from '@wenyan/core'
 
 type Config = {
   upstream: string
@@ -20,12 +21,11 @@ function parseArgs(argv: string[]): { configPath: string; port?: number } {
 
 function parseToml(configPath: string): Config {
   const text = readFileSync(configPath, 'utf8')
-  const upstreamMatch = text.match(/upstream\s*=\s*"([^"]+)"/)
-  const gatewayPortMatch = text.match(/gateway_port\s*=\s*(\d+)/)
+  const parsed = parseBootstrapConfigToml(text)
 
   return {
-    upstream: upstreamMatch?.[1] ?? process.env.WENYAN_UPSTREAM ?? 'http://127.0.0.1:8787',
-    port: gatewayPortMatch ? Number(gatewayPortMatch[1]) : 8080,
+    upstream: parsed.gateway.upstream ?? process.env.WENYAN_UPSTREAM ?? 'http://127.0.0.1:8787',
+    port: parsed.gateway.listen.port,
   }
 }
 

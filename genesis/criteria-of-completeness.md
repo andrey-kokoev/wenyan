@@ -55,6 +55,12 @@ Also: **Tongzheng Si** exists as a distinct deployable binary (`tongzheng-si`) s
 - bridge forgetting demonstrated in NATS adapter (drops foreign headers)
 - standalone Tongzheng binary implemented (`packages/gateway/src/server.ts`)
 - CLI draft/bootstrap/join workflow implemented (`packages/cli/src/index.ts`)
+- law runtime moved to archived `edict` documents with resolver ordering:
+  - `precedence DESC`
+  - `effective_date DESC (<= now)`
+  - `sealed_at DESC`
+  - ambiguity fails closed (`ambiguous-law`)
+- bootstrap config reduced to archive/genesis/gateway/law-cache wiring only (`wenyan.toml`)
 
 ---
 

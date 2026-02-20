@@ -1,25 +1,21 @@
-[seal]
-threshold = 6
-enabled_stages = ["caoni", "shenfu", "pizhun"]
-
-[censor]
-schema_lookup = "archive"
-cache_ttl_seconds = 60
-
-[routing]
-submit_path = "/api/wenyan/messages"
-status_path = "/api/wenyan/messages/:id"
-stream_path = "/api/wenyan/stream"
-upstream = "http://127.0.0.1:8787"
-gateway_port = 8080
-
 [archive]
+engine = "sqlite"
 path = "./wenyan.dang'an"
-retention_days = 3650
 
-[retention]
-archive_days = 3650
-replay_window_seconds = 3600
+[genesis]
+node_id = "11111111-1111-4111-8111-111111111111"
+genesis_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
-[authorization]
-mode = "strict"
+[gateway]
+upstream = "http://127.0.0.1:8787"
+
+[gateway.listen]
+host = "127.0.0.1"
+port = 8787
+
+[law]
+mode = "compat"
+
+[law_cache]
+ttl_seconds = 60
+preload_types = ["appointment", "classification"]

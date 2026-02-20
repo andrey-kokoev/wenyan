@@ -1,6 +1,6 @@
 {
   "name": "@wenyan/server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Wenyan server (Cloudflare Hono)",
   "type": "module",
   "main": "src/index.ts",
@@ -23,6 +23,7 @@
   "dependencies": {
     "@wenyan/archive": "workspace:*",
     "@wenyan/channel": "workspace:*",
+    "@wenyan/core": "workspace:*",
     "@wenyan/gateway": "workspace:*",
     "@wenyan/shared": "workspace:*",
     "@wenyan/seal": "workspace:*",

@@ -11,10 +11,10 @@ import issuesRoutes from './routes/issues';
 import aiProvidersListHandler from './routes/ai/providers/index.get';
 import adminAiRoutes from './routes/admin/ai';
 import adminConfigRoutes from './routes/admin/config';
-import { InMemoryArchiveRepository } from '@wenyan/archive';
 import { createStorageAdapter, type StorageAdapter } from '@wenyan/archive/adapter';
 import { ReliableChannel } from '@wenyan/channel';
-import { buildGateway } from '@wenyan/gateway';
+import { parseBootstrapConfig, type EdictLawType, type LawMode } from '@wenyan/core';
+import { buildGateway, type GatewayRuntimeOptions } from '@wenyan/gateway';
 import { DEV_SEAL_CONTEXT } from '@wenyan/seal';
 
 // Import me/settings routes
@@ -71,25 +71,89 @@ import themeUpdateHandler from './routes/themes/[id]/index.patch';
  * Create and configure the Hono application
  */
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-function resolveStorageAdapter(kind: string | undefined, env: Bindings): StorageAdapter {
+const DEFAULT_NODE_ID = '00000000-0000-4000-8000-000000000000';
+const DEFAULT_GENESIS_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function parseLawPreload(raw: string | undefined): EdictLawType[] | undefined {
+  if (!raw) return undefined;
+  const values = raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter((v): v is EdictLawType =>
+      v === 'appointment' ||
+      v === 'classification' ||
+      v === 'routing' ||
+      v === 'admission' ||
+      v === 'protocol' ||
+      v === 'regulation',
+    );
+  return values.length > 0 ? values : undefined;
+}
+
+function resolveBootstrap(env: Bindings) {
+  return parseBootstrapConfig({
+    archive: {
+      engine: env.WENYAN_ARCHIVE_ENGINE ?? (env.DB ? 'cloudflare' : 'sqlite'),
+      path: env.WENYAN_ARCHIVE_PATH ?? "./wenyan.dang'an",
+    },
+    genesis: {
+      node_id: env.WENYAN_NODE_ID ?? DEFAULT_NODE_ID,
+      genesis_key: env.WENYAN_GENESIS_KEY ?? DEFAULT_GENESIS_KEY,
+    },
+    gateway: {
+      listen: {
+        host: env.WENYAN_GATEWAY_HOST ?? '127.0.0.1',
+        port: parsePositiveInt(env.WENYAN_GATEWAY_PORT, 8787),
+      },
+      ...(env.WENYAN_UPSTREAM ? { upstream: env.WENYAN_UPSTREAM } : {}),
+    },
+    law: {
+      mode: (env.WENYAN_LAW_MODE as LawMode | undefined) ?? 'compat',
+    },
+    law_cache: {
+      ttl_seconds: parsePositiveInt(env.WENYAN_LAW_CACHE_TTL_SECONDS, 60),
+      preload_types: parseLawPreload(env.WENYAN_LAW_PRELOAD_TYPES) ?? ['appointment', 'classification'],
+    },
+  });
+}
+
+function resolveStorageAdapter(kind: string | undefined, env: Bindings, sqlitePath: string): StorageAdapter {
   if (kind === 'cloudflare') {
-    return createStorageAdapter({ kind: 'cloudflare', d1: env.DB as unknown as Parameters<typeof createStorageAdapter>[0]['d1'], retentionDays: 3650 });
+    if (!env.DB) {
+      throw new Error('cloudflare adapter requires DB binding');
+    }
+    return createStorageAdapter({
+      kind: 'cloudflare',
+      d1: env.DB as unknown as Parameters<typeof createStorageAdapter>[0]['d1'],
+      retentionDays: 3650,
+    });
   }
   if (kind === 'memory') {
     return createStorageAdapter({ kind: 'memory' });
   }
-  try {
-    return createStorageAdapter({ kind: 'sqlite', sqlitePath: "./wenyan.dang'an", retentionDays: 3650 });
-  } catch {
-    return createStorageAdapter({ kind: 'memory' });
-  }
+  return createStorageAdapter({ kind: 'sqlite', sqlitePath, retentionDays: 3650 });
 }
 
-const storageKind = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.WENYAN_STORAGE_ADAPTER;
-let wenyanArchive: Awaited<ReturnType<StorageAdapter['createRepository']>> = new InMemoryArchiveRepository();
+let wenyanArchive: Awaited<ReturnType<StorageAdapter['createRepository']>> | undefined;
 let wenyanArchiveInit: Promise<void> | undefined
 const wenyanChannel = new ReliableChannel();
-const wenyanGateway = buildGateway(async () => wenyanArchive, wenyanChannel, DEV_SEAL_CONTEXT);
+const wenyanGatewayOptions: GatewayRuntimeOptions = {
+  lawMode: 'compat',
+  lawCacheTtlSeconds: 60,
+  lawPreloadTypes: ['appointment', 'classification'],
+};
+const wenyanGateway = buildGateway(async () => {
+  if (!wenyanArchive) {
+    throw new Error('wenyan archive is not initialized');
+  }
+  return wenyanArchive;
+}, wenyanChannel, DEV_SEAL_CONTEXT, wenyanGatewayOptions);
 
 /**
  * Apply common middleware to all routes
@@ -98,7 +162,12 @@ app.use('*', ...commonMiddleware);
 app.use('*', async (c, next) => {
   if (!wenyanArchiveInit) {
     wenyanArchiveInit = (async () => {
-      const adapter = resolveStorageAdapter(storageKind, c.env);
+      const bootstrap = resolveBootstrap(c.env);
+      wenyanGatewayOptions.lawMode = bootstrap.law.mode;
+      wenyanGatewayOptions.lawCacheTtlSeconds = bootstrap.law_cache?.ttl_seconds ?? 60;
+      wenyanGatewayOptions.lawPreloadTypes = bootstrap.law_cache?.preload_types;
+
+      const adapter = resolveStorageAdapter(bootstrap.archive.engine, c.env, bootstrap.archive.path);
       wenyanArchive = await adapter.createRepository();
     })()
   }
@@ -124,7 +193,7 @@ app.route('/health', healthRoutes);
 app.get('/api', (c) => {
   return c.json({
     name: 'Wenyan API',
-    version: '0.1.0',
+    version: '0.2.0',
     environment: c.env.ENVIRONMENT,
     endpoints: {
       health: '/health',
@@ -248,7 +317,7 @@ app.patch('/api/themes/:id', themeUpdateHandler);
 app.get('*', async (c) => {
   return c.json({
     message: 'Wenyan Server API',
-    version: '0.1.0',
+    version: '0.2.0',
     environment: c.env.ENVIRONMENT,
     timestamp: new Date().toISOString(),
     note: 'UI removed. API-only runtime.',
