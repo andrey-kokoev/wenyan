@@ -1,7 +1,8 @@
 # End-to-End Rituals (E2E Tests)
 
-These tests verify Wenyan's universal property through historical reenactment.
-Each test maps an imperial procedure to categorical invariant verification.
+This document is a ritual test specification and target set.
+Executable coverage is implemented in `*.e2e.test.ts`; not every assertion below is currently automated.
+Each ritual maps an imperial procedure to runtime invariant verification.
 
 1. The Imperial Examination (Golden Path)
    Historical Context: A scholar presents a memorial (zouzhe) to the throne.

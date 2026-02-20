@@ -1,5 +1,8 @@
 # Imperial Rites (Additional E2E Tests)
 
+This document is an additional ritual specification/roadmap.
+Executable coverage is implemented in `*.e2e.test.ts`; listed assertions here are target behavior unless explicitly covered by tests.
+
 8. The Secret Memorial (Mifeng/密封)
    Context: High-clearance documents arrive in sealed envelopes (encrypted payload).
    Only the Censorate and Emperor possess keys to decrypt.

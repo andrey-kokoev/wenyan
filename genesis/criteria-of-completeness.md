@@ -10,7 +10,7 @@ Three criteria:
 
 Categorical laws are **structural guarantees** of architecture and types, not test-file artifacts.
 
-- **Identity**: Initial morphism is represented by the received baseline state in the state graph.
+- **Identity**: Initial workflow identity is represented by baseline `pending` state prior to any transition.
 - **Composition**: Pipeline is a composition of stage morphisms (`draft -> review -> authorize`).
 - **Associativity**: Grouping equivalence is guaranteed by function composition and typed stage boundaries.
 - **Initiality**: Foreign systems factor through `IntoWenyan`; adapters forget foreign structure and reconstitute Wenyan documents.
@@ -25,12 +25,12 @@ Six seals are distinct cryptographic operations (not generic validation):
 
 | Seal | Mechanism | Implementation |
 |------|-----------|----------------|
-| 1. Office | Ed25519 + provenance route (human WebAuthn / agent mTLS) | `seal` stage `caoni` |
-| 2. Censor | Schema compliance fingerprint | `seal` stage `shenfu-1` |
-| 3. Date | Timestamp + ordering payload | `seal` stage `shenfu-2` |
-| 4. Class | Capability token | `seal` stage `shenfu-3` |
-| 5. Route | Destination commitment | `seal` stage `shenfu-4` |
-| 6. Imperial | Master authorization signature | `seal` stage `pizhun` |
+| 1. Office | Ed25519 signature + provenance markers | `seal` stage `caoni` |
+| 2. Censor | Payload key fingerprint | `seal` stage `shenfu-1` |
+| 3. Date | Timestamp + Lamport clock payload | `seal` stage `shenfu-2` |
+| 4. Class | Capability token (signed with configured secret) | `seal` stage `shenfu-3` |
+| 5. Route | Route key commitment hash | `seal` stage `shenfu-4` |
+| 6. Imperial | Master key signature | `seal` stage `pizhun` |
 
 Break any seal and the chain fails closed.
 
@@ -40,7 +40,7 @@ Also: **Tongzheng Si** exists as a distinct deployable binary (`tongzheng-si`) s
 
 ## 3. Operational Closure (The Archive)
 
-- **SQLite as Dang'an**: Single-file immutable log with provenance and temporal state lookup.
+- **Dang'an adapters**: SQLite (local) and Cloudflare D1 adapters with the same archive contract and temporal state lookup.
 - **CLI as brush**: `draft`, `submit`, `status`, `query`, `stream`.
 - **Local mode**: `wenyan --init` and `wenyan --join`.
 - **Deterministic replay**: `replay` reduces transitions to state without hidden variables.

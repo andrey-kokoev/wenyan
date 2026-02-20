@@ -31,21 +31,21 @@ The categorical structure maps to historical mechanics:
 
 ## Type-Theoretic Core
 
-Wenyan implements a **dependent type system** where:
+Wenyan implements a typed schema/runtime model where:
 
-- **Kinds** (Ti/體): Document genres defined in `core/schema`
+- **Kinds** (Ti/體): Document genres defined in `core/` schemas
 - **Terms** (Ci/辭): Message payloads parameterized by provenance
-- **Certificates** (Shu/書): Cryptographic proofs as dependent witnesses
+- **Certificates** (Shu/書): Cryptographic proof records attached per message
 
-The six-seal chain forms a **dependent product** Π(s:SealChain).Authorized(s). Tampering breaks the dependency; the typechecker rejects invalid transitions.
+The six-seal chain is enforced at runtime through deterministic hash/signature verification and archive transition checks. Tampering breaks verification and is rejected.
 
 ## Runtime Structure
 
 **Static** (The Law):
 - Schema definitions (immutable kinds)
 - Cryptographic invariants (hash algorithms, signature schemes)
-- State machine graph (valid transitions encoded as Rust types)
-- Role hierarchy (permission matrices)
+- State machine graph (valid transitions encoded in TypeScript schemas/helpers)
+- Role hierarchy (law-resolved permissions with compat fallback)
 
 **Moving** (The Flow):
 - Message instances (temporary documents in pipeline)
@@ -55,4 +55,4 @@ The six-seal chain forms a **dependent product** Π(s:SealChain).Authorized(s). 
 
 ## Deployment Invariant
 
-Local execution maintains the same categorical properties as distributed: SQLite serves as both **state machine registry** and **immutable archive** (Dang'an). The gateway-pipeline-archive triad forms the minimal viable universal property—no external dependencies required for the initial object to exist.
+Local execution maintains the same categorical properties as distributed: SQLite can serve as both **state machine registry** and **immutable archive** (Dang'an), while Cloudflare D1 is supported through the same adapter contract. The gateway-pipeline-archive triad forms the minimal viable universal property.

@@ -56,8 +56,8 @@ npm run build
 # Deploy to production
 npm run deploy
 
-# Deploy to staging
-npm run deploy:staging
+# Deploy to development environment
+npm run deploy:dev
 ```
 
 ## API Endpoints
