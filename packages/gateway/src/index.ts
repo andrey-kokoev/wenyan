@@ -44,7 +44,11 @@ export interface GatewayRuntimeOptions {
   lawResolver?: LawResolver
 }
 
-async function validateByArchivedTi(repo: ArchiveRepository, message: ReturnType<typeof validateEnvelope>) {
+async function validateByArchivedTi(
+  repo: ArchiveRepository,
+  message: ReturnType<typeof validateEnvelope>,
+  options: { requireDefinedGenreSchema?: boolean } = {},
+) {
   if (message.genre === 'ti_definition') {
     validateTiDefinition(message)
     return
@@ -55,7 +59,12 @@ async function validateByArchivedTi(repo: ArchiveRepository, message: ReturnType
   }
 
   const schema = await repo.getActiveGenreSchema(message.genre)
-  if (!schema) return
+  if (!schema) {
+    if (options.requireDefinedGenreSchema) {
+      throw new Error('genre-schema-missing')
+    }
+    return
+  }
   const required = Array.isArray(schema.required) ? schema.required : []
   for (const key of required) {
     if (typeof key === 'string' && !(key in message.payload)) {
@@ -118,7 +127,9 @@ export async function tongzhengSi(
   input: unknown,
 ) {
   const message = validateEnvelope(input)
-  await validateByArchivedTi(repo, message)
+  await validateByArchivedTi(repo, message, {
+    requireDefinedGenreSchema: resolver.getMode() === 'strict',
+  })
   await admissionCheck(resolver, message)
   return message
 }
@@ -209,6 +220,9 @@ export function buildGateway(
       }
       if (error instanceof Error && error.message === 'schema-noncompliant') {
         return c.json({ error: 'schema-noncompliant' }, 400)
+      }
+      if (error instanceof Error && error.message === 'genre-schema-missing') {
+        return c.json({ error: 'genre-schema-missing' }, 503)
       }
       if (error instanceof Error && error.message === 'genre-not-admitted') {
         return c.json({ error: 'genre-not-admitted' }, 403)

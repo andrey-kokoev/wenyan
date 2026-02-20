@@ -32,6 +32,33 @@ function seedAdmissionLaw(repo: InMemoryArchiveRepository, allowedGenres: string
   })
 }
 
+function seedTiDefinition(repo: InMemoryArchiveRepository, targetGenre: string): void {
+  const now = new Date().toISOString()
+  const id = `ti-${targetGenre}-${Date.now()}`
+  repo.appendMessage({
+    id,
+    genre: 'ti_definition',
+    payload: {
+      target_genre: targetGenre,
+      version: '1.0.0',
+      schema: { type: 'object', required: [] },
+    },
+    actor: { id: 'seed', role: 'admin' },
+    submittedAt: now,
+    metadata: {},
+  })
+  repo.appendTransition({
+    messageId: id,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: now,
+    prevTransitionHash: 'GENESIS',
+    at: now,
+  })
+}
+
 describe('gateway boundaries', () => {
   it('rejects malformed payload with 400 (zod)', async () => {
     const app = buildGateway(new InMemoryArchiveRepository(), new ReliableChannel(), DEV_SEAL_CONTEXT)
@@ -72,8 +99,10 @@ describe('gateway boundaries', () => {
   })
 
   it('fails closed in strict mode when admission law is missing', async () => {
+    const repo = new InMemoryArchiveRepository()
+    seedTiDefinition(repo, 'memo')
     const app = buildGateway(
-      new InMemoryArchiveRepository(),
+      repo,
       new ReliableChannel(),
       DEV_SEAL_CONTEXT,
       { lawMode: 'strict' },
@@ -98,6 +127,7 @@ describe('gateway boundaries', () => {
 
   it('enforces admission law genre allow-list', async () => {
     const repo = new InMemoryArchiveRepository()
+    seedTiDefinition(repo, 'memo')
     seedAdmissionLaw(repo, ['petition'])
     const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
 
@@ -121,6 +151,7 @@ describe('gateway boundaries', () => {
 
   it('applies updated admission law immediately after edict archive', async () => {
     const repo = new InMemoryArchiveRepository()
+    seedTiDefinition(repo, 'memo')
     seedAdmissionLaw(repo, ['petition'])
     const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, {
       lawMode: 'compat',
@@ -175,5 +206,28 @@ describe('gateway boundaries', () => {
       }),
     })
     expect(allowed.status).toBe(201)
+  })
+
+  it('rejects undefined genre schema in strict mode', async () => {
+    const repo = new InMemoryArchiveRepository()
+    seedAdmissionLaw(repo, ['*'])
+    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { lawMode: 'strict' })
+
+    const res = await app.request('/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: `m-${Date.now()}`,
+        genre: 'memo',
+        payload: { hello: 'world' },
+        actor: { id: 'u1', role: 'admin' },
+        submittedAt: new Date().toISOString(),
+        metadata: {},
+      }),
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.error).toBe('genre-schema-missing')
   })
 })
