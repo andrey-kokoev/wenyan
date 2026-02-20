@@ -1,6 +1,14 @@
 # Wenyan
 
-Wenyan is an API-only Cloudflare Hono monorepo implementing the Wenyan runtime architecture.
+Wenyan is monorepo implementing the Wenyan runtime architecture.
+
+## Genesis Docs
+
+If you want to understand the architectural rationale and design principles behind Wenyan, start with the genesis docs:
+
+- [`genesis/wenyan.md`](genesis/wenyan.md) - architectural genesis and model
+- [`genesis/criteria-of-completeness.md`](genesis/criteria-of-completeness.md) - completion criteria and invariants
+- [`genesis/out-of-scope.md`](genesis/out-of-scope.md) - explicit non-goals and boundaries
 
 ## Packages
 
@@ -24,9 +32,11 @@ Wenyan is an API-only Cloudflare Hono monorepo implementing the Wenyan runtime a
 
 ## Law In Dang'an
 
-- Runtime law/config for admission/appointment/classification/routing/protocol/regulation is archived as sealed `genre: "edict"` documents.
+- Runtime law/config for admission/appointment/classification/routing/protocol/regulation is resolved from archived `genre: "edict"` documents.
 - Genre schema registry is archived as sealed `genre: "ti_definition"` documents.
 - Static filesystem config is bootstrap-only (`wenyan.toml`): archive engine/path, genesis identity/key, gateway bind, and optional law cache tuning.
+- Default mode is `compat`: missing/ambiguous/invalid law can fall back to legacy behavior with emitted fallback events.
+- `strict` mode fails closed when required law cannot be resolved.
 
 ## Runtime endpoints
 
