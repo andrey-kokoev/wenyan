@@ -1,0 +1,82 @@
+name = "wenyan"
+main = "src/index.ts"
+compatibility_date = "2026-01-31"
+compatibility_flags = ["nodejs_compat"]
+
+# Serve static frontend assets from the Worker
+[assets]
+binding = "ASSETS"
+directory = "./public"
+
+# Default vars for local development
+[vars]
+ENVIRONMENT = "development"
+AUTH_MICROSOFT_CLIENT_ID = "b5daebfe-2960-4351-85c0-7411630b9b7f"
+AUTH_MICROSOFT_TENANT = "common"
+AUTH_MICROSOFT_REDIRECT_URL = "http://localhost:8787/auth/callback"
+
+# Shared resource bindings
+[[d1_databases]]
+binding = "DB"
+database_name = "harmonia-db"
+database_id = "5a85c2aa-5150-442a-863a-435dfcff6356"
+preview_database_id = "5a85c2aa-5150-442a-863a-435dfcff6356"
+migrations_dir = "database/migrations"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "813f107b0a744033958a73dcfdb85a6f"
+preview_id = "813f107b0a744033958a73dcfdb85a6f"
+
+[[r2_buckets]]
+binding = "BLOB"
+bucket_name = "harmonia-bucket"
+preview_bucket_name = "harmonia-bucket"
+
+[[services]]
+binding = "DOCX_CONVERSION_PRODUCER"
+service = "docx-conversion-producer"
+
+[[services]]
+binding = "HTTP_JOB_PRODUCER"
+service = "http-job-producer"
+
+[ai]
+binding = "AI"
+
+# Production environment - must duplicate all bindings and vars
+[env.production]
+name = "wenyan"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+AUTH_MICROSOFT_CLIENT_ID = "b5daebfe-2960-4351-85c0-7411630b9b7f"
+AUTH_MICROSOFT_TENANT = "common"
+AUTH_MICROSOFT_REDIRECT_URL = "https://harmonia.andrei-kokoev.workers.dev/auth/callback"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "harmonia-db"
+database_id = "5a85c2aa-5150-442a-863a-435dfcff6356"
+migrations_dir = "database/migrations"
+
+[[env.production.kv_namespaces]]
+binding = "KV"
+id = "813f107b0a744033958a73dcfdb85a6f"
+preview_id = "813f107b0a744033958a73dcfdb85a6f"
+
+[[env.production.r2_buckets]]
+binding = "BLOB"
+bucket_name = "harmonia-bucket"
+preview_bucket_name = "harmonia-bucket"
+
+[[env.production.services]]
+binding = "DOCX_CONVERSION_PRODUCER"
+service = "docx-conversion-producer"
+
+[[env.production.services]]
+binding = "HTTP_JOB_PRODUCER"
+service = "http-job-producer"
+
+[env.production.ai]
+binding = "AI"

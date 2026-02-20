@@ -1,0 +1,36 @@
+import { z } from 'zod'
+
+export const MessageStateSchema = z.enum([
+  'pending',
+  'validated',
+  'reviewed',
+  'authorized',
+  'rejected',
+  'archived',
+])
+
+export const ActorSchema = z.object({
+  id: z.string().min(1),
+  role: z.enum(['scribe', 'reviewer', 'approver', 'archivist', 'admin']),
+})
+
+export const MessageEnvelopeSchema = z.object({
+  id: z.string().min(1),
+  genre: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()),
+  actor: ActorSchema,
+  submittedAt: z.string().datetime(),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+})
+
+export const TransitionSchema = z.object({
+  messageId: z.string().min(1),
+  fromState: MessageStateSchema,
+  toState: MessageStateSchema,
+  sequenceNo: z.number().int().nonnegative(),
+  actorId: z.string().min(1).optional(),
+  reason: z.string().optional(),
+  sealedAt: z.string().datetime().optional(),
+  prevTransitionHash: z.string().min(1).optional(),
+  at: z.string().datetime(),
+})

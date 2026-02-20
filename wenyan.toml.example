@@ -1,0 +1,19 @@
+[seal]
+threshold = 6
+enabled_stages = ["caoni", "shenfu", "pizhun"]
+
+[routing]
+submit_path = "/api/wenyan/messages"
+status_path = "/api/wenyan/messages/:id"
+stream_path = "/api/wenyan/stream"
+
+[archive]
+path = "./wenyan.dang'an"
+retention_days = 3650
+
+[retention]
+archive_days = 3650
+replay_window_seconds = 3600
+
+[authorization]
+mode = "strict"

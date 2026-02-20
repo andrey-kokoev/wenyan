@@ -1,0 +1,32 @@
+[
+  {
+    "code": "logic:false-cause",
+    "name": "False Cause (Post Hoc / Cum Hoc Ergo Propter Hoc)",
+    "description": "Assumes correlation or sequence implies causation.\n\ne.g.,\nfor statement “If women are healthy and educated, their families will flourish”, the failure mode is: `While women's health and education may correlate with family flourishing, the statement presents this as inevitable causation without establishing the actual causal mechanism or ruling out confounding variables.`"
+  },
+  {
+    "code": "logic:hasty-generalization",
+    "name": "Hasty Generalization",
+    "description": "Draws a broad conclusion from a small or unrepresentative sample.\n\ne.g.,\nfor statement “If women are healthy and educated, their families will flourish”, the failure mode is: `Applies a universal claim ('will flourish') to all women/families without acknowledging exceptions, cultural variations, or contexts where health and education may not translate to family welfare due to external constraints.`"
+  },
+  {
+    "code": "logic:slippery-slope",
+    "name": "Slippery Slope",
+    "description": "Assumes a relatively small first step will inevitably lead to a chain of related (negative) events.\n\ne.g.,\nfor statement “If women are healthy and educated, their families will flourish”, the failure mode is: `Suggests a simple linear progression (health + education → flourishing) while ignoring complex, non-linear realities of family dynamics, economic conditions, and social structures that may interrupt or redirect outcomes.`"
+  },
+  {
+    "code": "logic:unstated-premise",
+    "name": "Unstated Major Premise / Begging the Question",
+    "description": "Assumes the truth of a key premise without proof; conclusion assumed in premise.\n\ne.g.,\nfor statement “If women are healthy and educated, their families will flourish”, the failure mode is: `Assumes 'flourishing' is universally definable, primarily dependent on maternal factors, and the natural outcome—without establishing what flourishing entails or why maternal attributes are the decisive variable.`"
+  },
+  {
+    "code": "logic:composition",
+    "name": "Composition Fallacy",
+    "description": "Assumes what is true of the parts must be true of the whole.\n\ne.g.,\nfor statement “If women are healthy and educated, their families will flourish”, the failure mode is: `Infers that attributes of individual women (health/education) will necessarily scale to family-level outcomes, ignoring emergent properties of family systems where aggregate welfare depends on multiple interacting factors beyond any single member.`"
+  },
+  {
+    "code": "logic:false-dichotomy",
+    "name": "False Dichotomy (Implied Framing)",
+    "description": "Presents two options as the only possibilities when others exist.\n\ne.g.,\nfor statement “If women are healthy and educated, their families will flourish”, the failure mode is: `Positions women's health/education as the key variable for family outcomes, implicitly excluding or minimizing other critical factors such as economic stability, paternal involvement, community support, or policy environment that may be equally or more determinative.`"
+  }
+]

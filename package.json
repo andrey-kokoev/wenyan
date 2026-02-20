@@ -1,0 +1,24 @@
+{
+  "name": "wenyan",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.6.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @wenyan/app dev:local",
+    "dev:local": "pnpm --filter @wenyan/app dev:local",
+    "dev:remote": "pnpm --filter @wenyan/app dev",
+    "dev:server:local": "pnpm --filter @wenyan/server dev:local",
+    "dev:server:remote": "pnpm --filter @wenyan/server dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "genesis:verify": "tsx scripts/genesis-verify.ts",
+    "test:archive:persistence": "tsx scripts/test-archive-persistence.ts",
+    "test:seal:crypto": "tsx scripts/test-seal-crypto.ts",
+    "test:initiality": "tsx scripts/test-initiality.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}

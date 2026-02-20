@@ -1,0 +1,47 @@
+{
+  "name": "@wenyan/server",
+  "version": "0.1.0",
+  "description": "Wenyan server (Cloudflare Hono)",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "kill -9 $(lsof -t -i:8787) 2>/dev/null || true && wrangler dev --port 8787 --remote",
+    "dev:local": "kill -9 $(lsof -t -i:8787) 2>/dev/null || true && wrangler dev --port 8787",
+    "deploy": "pnpm build:frontend && wrangler deploy --env production",
+    "deploy:dev": "pnpm build:frontend && wrangler deploy --env development",
+    "build:frontend": "cd ../app && VITE_API_URL=/ pnpm build && rm -rf ../server/public && cp -r dist ../server/public",
+    "db:migrate": "node scripts/migrate-both.mjs",
+    "seed:themes": "node scripts/seed-themes.mjs",
+    "seed:rules": "node scripts/seed-rules.mjs",
+    "seed:ai": "node scripts/seed-ai-providers.mjs",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
+    "lint": "oxlint src",
+    "fmt": "oxfmt -w src",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@wenyan/archive": "workspace:*",
+    "@wenyan/channel": "workspace:*",
+    "@wenyan/gateway": "workspace:*",
+    "@wenyan/shared": "workspace:*",
+    "@wenyan/seal": "workspace:*",
+    "@hono/zod-validator": "^0.7.6",
+    "arctic": "^3.7.0",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.11.7",
+    "iron-webcrypto": "^2.0.0",
+    "json5": "^2.2.3",
+    "jsonrepair": "^3.9.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260131.0",
+    "@types/node": "^25.2.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18",
+    "jsdom": "^26.1.0",
+    "wrangler": "^4.62.0"
+  }
+}

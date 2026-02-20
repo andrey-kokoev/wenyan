@@ -1,0 +1,8 @@
+# Development environment variables for wrangler dev
+# Copy to .dev.vars and fill real values locally.
+
+AUTH_SECRET="replace-with-random-base64"
+AUTH_MICROSOFT_CLIENT_ID="replace-with-client-id"
+AUTH_MICROSOFT_CLIENT_SECRET="replace-with-client-secret"
+AUTH_MICROSOFT_TENANT="common"
+AUTH_MICROSOFT_REDIRECT_URL="http://localhost:8787/auth/callback"

@@ -1,0 +1,319 @@
+@import url("https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap");
+
+@plugin "tailwindcss-animate";
+@import "tailwindcss";
+
+/**
+ * Dark mode variant configuration (Tailwind CSS v4)
+ * Applies dark mode styles when element is inside a .dark ancestor
+ * Usage: dark:bg-black applies bg-black when .dark class is present on any parent
+ */
+@custom-variant dark (&:is(.dark *));
+
+/**
+ * COLOR SYSTEM PHILOSOPHY
+ *
+ * Interactive State Colors (Hover/Active):
+ * We use CSS Relative Color Syntax in OKLCH color space for hover/active states.
+ *
+ * Why Relative Colors over color-mix?
+ * - Preserves saturation: Reduces lightness without desaturating
+ * - More precise: Direct channel manipulation (lightness, chroma, hue)
+ * - Better results: No muddying from mixing with black
+ * - More intuitive: "Reduce lightness by 15%" vs "Mix 85% color with 15% black"
+ * - Future-proof: Industry standard direction for CSS color manipulation
+ *
+ * Syntax: oklch(from <color> calc(l * 0.85) c h)
+ * - Takes lightness (l) and multiplies by 0.85 (15% darker)
+ * - Preserves chroma (c) and hue (h) exactly
+ *
+ * Browser Support: Chrome 119+, Safari 16.4+, Firefox 128+ (all 2023-2024)
+ */
+
+@theme static {
+  --font-sans: "Public Sans", sans-serif;
+
+  --breakpoint-3xl: 1920px;
+
+  /* Yellow (PMS 1235C) - Bright, uplifting */
+  --color-selective-yellow-50: #fffaeb;
+  --color-selective-yellow-100: #fff2c6;
+  --color-selective-yellow-200: #ffe388;
+  --color-selective-yellow-300: #ffcf4a;
+  --color-selective-yellow-400: #ffb81c; /* Primary brand yellow */
+  --color-selective-yellow-500: #f99707;
+  --color-selective-yellow-600: #dd7002;
+  --color-selective-yellow-700: #b74d06;
+  --color-selective-yellow-800: #943a0c;
+  --color-selective-yellow-900: #7a300d;
+  --color-selective-yellow-950: #461802;
+
+  /* Orange (PMS 151C) - Energetic, warm */
+  --color-sorbus-50: #fff9ec;
+  --color-sorbus-100: #fff3d3;
+  --color-sorbus-200: #ffe3a5;
+  --color-sorbus-300: #ffcd6d;
+  --color-sorbus-400: #ffab32;
+  --color-sorbus-500: #ff900a;
+  --color-sorbus-600: #ff7800; /* Primary brand orange */
+  --color-sorbus-700: #cc5702;
+  --color-sorbus-800: #a1430b;
+  --color-sorbus-900: #82390c;
+  --color-sorbus-950: #461a04;
+
+  /* Neutral Tan (Light Neutral Tan) - Grounding, friendly */
+  --color-pearl-bush-50: #f9f7f3;
+  --color-pearl-bush-100: #f1ede3;
+  --color-pearl-bush-200: #e7dfcf; /* Primary neutral tan */
+  --color-pearl-bush-300: #d0bfa1;
+  --color-pearl-bush-400: #bca17b;
+  --color-pearl-bush-500: #ae8b61;
+  --color-pearl-bush-600: #a17955;
+  --color-pearl-bush-700: #866248;
+  --color-pearl-bush-800: #6d503f;
+  --color-pearl-bush-900: #594335;
+  --color-pearl-bush-950: #2f221b;
+
+  /* Black (PMS Black C) - Bold, empowering */
+  --color-black-50: #e6e6e6;
+  --color-black-100: #cccccc;
+  --color-black-200: #999999;
+  --color-black-300: #666666;
+  --color-black-400: #333333;
+  --color-black-500: #000000; /* Primary black */
+  --color-black-600: #000000;
+  --color-black-700: #000000;
+  --color-black-800: #000000;
+  --color-black-900: #000000;
+  --color-black-950: #000000;
+
+  /* Error Red (PMS 186C) - Strong, attention-grabbing */
+  --color-error-red-50: #ffe5e8;
+  --color-error-red-100: #ffb3ba;
+  --color-error-red-200: #ff8089;
+  --color-error-red-300: #ff4d58;
+  --color-error-red-400: #ff1a29;
+  --color-error-red-500: #e6001c; /* Primary error red */
+  --color-error-red-600: #b40016;
+  --color-error-red-700: #820011;
+  --color-error-red-800: #59000c;
+  --color-error-red-900: #3d0009;
+  --color-error-red-950: #1f0004;
+
+  /* Semantic colors (Tailwind v4 CSS-first theme) */
+  /* Surface taxonomy (bg-*) */
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: oklch(from var(--ui-primary) calc(l * 0.85) c h);
+  --color-secondary: var(--ui-secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-hover: oklch(from var(--ui-secondary) calc(l * 0.85) c h);
+  --color-success: var(--ui-success);
+  --color-success-hover: oklch(from var(--ui-success) calc(l * 0.85) c h);
+  --color-warning: var(--ui-warning);
+  --color-warning-hover: oklch(from var(--ui-warning) calc(l * 0.85) c h);
+  --color-error: var(--ui-error);
+  --color-error-hover: oklch(from var(--ui-error) calc(l * 0.85) c h);
+  --color-info: var(--ui-info);
+  --color-info-hover: oklch(from var(--ui-info) calc(l * 0.85) c h);
+  --color-neutral: var(--ui-neutral);
+  --color-neutral-hover: oklch(from var(--ui-neutral) calc(l * 0.85) c h);
+  --color-destructive: var(--ui-error);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-hover: oklch(from var(--ui-error) calc(l * 0.85) c h);
+  --color-background: var(--background);
+  --color-canvas: var(--background);
+  --color-surface: var(--card);
+  --color-elevated: var(--ui-bg-elevated);
+  --color-inset: var(--ui-bg-muted);
+  --color-overlay: var(--ui-bg-elevated);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --ui-primary: var(--color-selective-yellow-600); /* Vibrant yellow for energy */
+  --ui-secondary: var(--color-sorbus-500); /* Warm orange for friendliness */
+  --ui-success: var(--color-selective-yellow-400);
+  --ui-info: var(--color-sorbus-400);
+  --ui-warning: var(--color-selective-yellow-600);
+  --ui-error: var(--color-error-red-600);
+  --ui-neutral: var(--color-pearl-bush-500); /* Neutral tan for grounding */
+  --ui-bg: var(--color-pearl-bush-50);
+  --ui-bg-muted: color-mix(in oklch, var(--ui-bg) 97%, var(--ui-primary) 3%);
+  --ui-bg-elevated: color-mix(in oklch, var(--ui-bg) 90%, var(--ui-primary) 10%);
+  --ui-bg-accented: color-mix(in oklch, var(--ui-bg) 82%, var(--ui-primary) 18%);
+  --ui-bg-inverted: var(--color-black-500);
+  --ui-text: var(--color-black-500);
+  --ui-border: var(--color-pearl-bush-200);
+  --ui-radius: 0.5rem;
+
+  /* Chart accents (keep high-contrast vs chart surfaces) */
+  --ui-chart-dot-primary: var(--color-selective-yellow-700);
+  --ui-chart-dot-secondary: var(--color-sorbus-700);
+  --radius: 0.625rem;
+
+  /* Shadcn-vue compatible variables */
+  --primary: var(--ui-primary);
+  --primary-foreground: var(--color-black-500);
+  --background: var(--ui-bg);
+  --foreground: var(--ui-text);
+  --card: var(--ui-bg);
+  --card-foreground: var(--ui-text);
+  --popover: var(--ui-bg);
+  --popover-foreground: var(--ui-text);
+  --secondary: var(--ui-secondary);
+  --secondary-foreground: var(--color-black-500);
+  --muted: var(--ui-bg-muted);
+  --muted-foreground: color-mix(in oklch, var(--ui-text) 60%, transparent);
+  --accent: color-mix(in oklch, var(--ui-primary) 15%, var(--ui-bg) 85%);
+  --accent-foreground: var(--ui-text);
+  --destructive: var(--ui-error);
+  --destructive-foreground: white;
+  --border: var(--ui-border);
+  --input: var(--ui-border);
+  --ring: var(--ui-primary);
+  --chart-1: var(--ui-primary);
+  --chart-2: var(--ui-secondary);
+  --chart-3: var(--ui-success);
+  --chart-4: var(--ui-warning);
+  --chart-5: var(--ui-info);
+  --sidebar: var(--ui-bg-elevated);
+  --sidebar-foreground: var(--ui-text);
+  --sidebar-primary: var(--ui-primary);
+  --sidebar-primary-foreground: white;
+  --sidebar-accent: var(--ui-secondary);
+  --sidebar-accent-foreground: white;
+  --sidebar-border: var(--ui-border);
+  --sidebar-ring: var(--ui-primary);
+
+}
+
+.dark {
+  --ui-primary: var(--color-selective-yellow-600); /* Darker, less saturated yellow for dark mode */
+  --ui-secondary: var(--color-sorbus-600); /* Darker orange for dark mode */
+  --ui-success: var(--color-selective-yellow-500);
+  --ui-info: var(--color-sorbus-500);
+  --ui-warning: var(--color-selective-yellow-600);
+  --ui-error: var(--color-error-red-400);
+  --ui-neutral: var(--color-pearl-bush-600);
+  --ui-bg: var(--color-black-500); /* Black for bold contrast */
+  --ui-bg-muted: color-mix(in oklch, var(--ui-bg) 95%, var(--ui-primary) 5%);
+  --ui-bg-elevated: color-mix(in oklch, var(--ui-bg) 88%, var(--ui-primary) 12%);
+  --ui-bg-accented: color-mix(in oklch, var(--ui-bg) 78%, var(--ui-primary) 22%);
+  --ui-bg-inverted: var(--color-pearl-bush-50);
+  --ui-text: var(--color-pearl-bush-100);
+  --ui-border: var(--color-pearl-bush-800); /* Much darker border for dark mode */
+
+  --ui-chart-dot-primary: var(--color-selective-yellow-500);
+  --ui-chart-dot-secondary: var(--color-sorbus-500);
+  --background: var(--ui-bg);
+  --foreground: var(--ui-text);
+  --card: var(--ui-bg-elevated);
+  --card-foreground: var(--ui-text);
+  --popover: var(--ui-bg-elevated);
+  --popover-foreground: var(--ui-text);
+  --primary: var(--ui-primary);
+  --primary-foreground: var(--color-pearl-bush-50);
+  --secondary: var(--ui-secondary);
+  --secondary-foreground: var(--color-pearl-bush-50);
+  --muted: var(--ui-bg-muted);
+  --muted-foreground: color-mix(in oklch, var(--ui-text) 60%, transparent);
+  --accent: color-mix(in oklch, var(--ui-primary) 12%, var(--ui-bg) 88%);
+  --accent-foreground: var(--ui-text);
+  --destructive: var(--ui-error);
+  --destructive-foreground: var(--color-pearl-bush-50);
+  --border: var(--ui-border);
+  --input: var(--ui-border);
+  --ring: var(--ui-primary);
+  --chart-1: var(--ui-primary);
+  --chart-2: var(--ui-secondary);
+  --chart-3: var(--ui-success);
+  --chart-4: var(--ui-warning);
+  --chart-5: var(--ui-info);
+  --sidebar: var(--ui-bg-accented);
+  --sidebar-foreground: var(--ui-text);
+  --sidebar-primary: var(--ui-primary);
+  --sidebar-primary-foreground: var(--color-pearl-bush-50);
+  --sidebar-accent: var(--ui-secondary);
+  --sidebar-accent-foreground: var(--color-pearl-bush-50);
+  --sidebar-border: var(--ui-border);
+  --sidebar-ring: var(--ui-primary);
+
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  min-height: 100vh;
+}
+
+/* Scrollbar styling (aligned with smart-scheduling) */
+.nav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 128, 0.35) transparent;
+}
+
+.dark .nav-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+
+.nav-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nav-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(120, 120, 128, 0.35);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.dark .nav-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.nav-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(120, 120, 128, 0.5);
+}
+
+.dark .nav-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.nav-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

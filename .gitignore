@@ -1,0 +1,14 @@
+node_modules
+.pnpm-store
+.pnpm-debug.log
+.DS_Store
+dist
+coverage
+.env
+.env.*
+!.env.example
+.history
+*.sqlite-shm
+*.sqlite-wal
+*.log
+*.dev.vars
