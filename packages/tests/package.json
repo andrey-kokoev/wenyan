@@ -1,6 +1,6 @@
 {
   "name": "@wenyan/tests",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,9 +12,12 @@
   "dependencies": {
     "@wenyan/archive": "workspace:*",
     "@wenyan/channel": "workspace:*",
+    "@wenyan/consensus": "workspace:*",
     "@wenyan/core": "workspace:*",
+    "@wenyan/crdt": "workspace:*",
     "@wenyan/gateway": "workspace:*",
     "@wenyan/genesis": "workspace:*",
+    "@wenyan/gossip": "workspace:*",
     "@wenyan/seal": "workspace:*"
   },
   "devDependencies": {

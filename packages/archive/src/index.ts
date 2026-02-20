@@ -27,6 +27,21 @@ export interface ConstitutionalDocumentRef {
   archivedAt: string
 }
 
+export interface MerkleProof {
+  messageId: string
+  leafHash: string
+  rootHash: string
+  path: string[]
+}
+
+export interface GossipLogEntry {
+  messageId: string
+  peerNodeId: string
+  sealSeq: number
+  receivedAt: string
+  kind: 'eager' | 'lazy' | 'repair' | 'imperial'
+}
+
 export interface ArchiveRepository {
   appendMessage(message: MessageEnvelope): void | Promise<void>
   appendTransition(transition: Transition): void | Promise<void>
@@ -47,8 +62,16 @@ export interface ArchiveRepository {
   getCurrentLaw(lawType: EdictLawType, atIso: string): ResolvedLaw | undefined | Promise<ResolvedLaw | undefined>
   getLawSet(atIso: string): Record<EdictLawType, ResolvedLaw | undefined> | Promise<Record<EdictLawType, ResolvedLaw | undefined>>
   getConstitutionalDocuments(): ConstitutionalDocumentRef[] | Promise<ConstitutionalDocumentRef[]>
+  getMerkleRoot(scope?: 'all' | 'constitutional' | 'legislative'): string | Promise<string>
+  getMerkleProof(messageId: string): MerkleProof | undefined | Promise<MerkleProof | undefined>
+  getSyncRange(fromCursor: string, limit: number): Transition[] | Promise<Transition[]>
+  upsertContentBlob(hash: string, payload: Uint8Array | string): void | Promise<void>
+  getContentBlob(hash: string): Uint8Array | undefined | Promise<Uint8Array | undefined>
+  appendGossipLog(entry: GossipLogEntry): void | Promise<void>
 }
 
 export * from './query'
 export * from './replay'
 export * from './ti-resolver'
+export * from './merkle-dag'
+export * from './sync'

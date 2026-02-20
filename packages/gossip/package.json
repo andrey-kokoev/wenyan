@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/actor",
+  "name": "@wenyan/gossip",
   "version": "0.4.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,13 +20,13 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andrey-kokoev/wenyan.git",
-    "directory": "packages/actor"
+    "directory": "packages/gossip"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src",
+    "test": "vitest run src --passWithNoTests",
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {

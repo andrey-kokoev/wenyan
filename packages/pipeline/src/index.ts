@@ -36,6 +36,16 @@ export interface PipelineResult {
 export interface PipelineRuntimeOptions {
   lawResolver?: LawResolver
   lawMode?: LawMode
+  distributedMode?: 'single' | 'consort'
+  consensusKind?: 'none' | 'pbft'
+  pbftConsensus?: {
+    proposeTiDefinition(proposalId: string, leaderNodeId: string): unknown
+    onPrepare(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
+    onCommit(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
+    commitIfThreshold(proposalId: string): boolean
+    currentView(): number
+  }
+  nodeId?: string
   lawCacheTtlSeconds?: number
   lawPreloadTypes?: EdictLawType[]
   onLawEvent?: (event: LawResolverEvent) => void
@@ -396,6 +406,19 @@ export async function finalizePendingMessage(
     }
   }
 
+  if ((options.distributedMode ?? 'single') === 'consort' && (options.consensusKind ?? 'none') === 'pbft' && withSnapshot.genre === 'ti_definition') {
+    const pbft = options.pbftConsensus
+    if (!pbft) return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
+    const nodeId = options.nodeId ?? 'local-node'
+    pbft.proposeTiDefinition(messageId, nodeId)
+    const viewNo = pbft.currentView()
+    pbft.onPrepare({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:prepare`, at: new Date().toISOString() })
+    pbft.onCommit({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:commit`, at: new Date().toISOString() })
+    if (!pbft.commitIfThreshold(messageId)) {
+      return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
+    }
+  }
+
   const result = await applySealsAndArchive(repo, withSnapshot, sealContext)
   maybeInvalidateLawFromMessage(resolver, withSnapshot)
   return result
@@ -466,6 +489,23 @@ export async function processDocketMessage(
     if (approvals.length < requiredAcks.required) {
       await appendNextTransition(repo, materialized, 'reviewed', 'pending', `awaiting-protocol-acks-${requiredAcks.required}`)
       return { messageId, finalState: 'pending' }
+    }
+  }
+
+  if ((options.distributedMode ?? 'single') === 'consort' && (options.consensusKind ?? 'none') === 'pbft' && materialized.genre === 'ti_definition') {
+    const pbft = options.pbftConsensus
+    if (!pbft) {
+      await appendNextTransition(repo, materialized, 'reviewed', 'pending', 'awaiting-pbft-consensus')
+      return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
+    }
+    const nodeId = options.nodeId ?? 'local-node'
+    pbft.proposeTiDefinition(messageId, nodeId)
+    const viewNo = pbft.currentView()
+    pbft.onPrepare({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:prepare`, at: new Date().toISOString() })
+    pbft.onCommit({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:commit`, at: new Date().toISOString() })
+    if (!pbft.commitIfThreshold(messageId)) {
+      await appendNextTransition(repo, materialized, 'reviewed', 'pending', 'awaiting-pbft-consensus')
+      return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
     }
   }
 

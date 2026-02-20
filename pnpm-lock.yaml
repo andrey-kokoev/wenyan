@@ -78,6 +78,19 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/consensus:
+    dependencies:
+      '@wenyan/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+
   packages/core:
     dependencies:
       smol-toml:
@@ -86,6 +99,19 @@ importers:
       zod:
         specifier: ^4.3.6
         version: 4.3.6
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+
+  packages/crdt:
+    dependencies:
+      '@wenyan/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       typescript:
         specifier: ^5.9.3
@@ -147,6 +173,19 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/gossip:
+    dependencies:
+      '@wenyan/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+
   packages/pipeline:
     dependencies:
       '@wenyan/actor':
@@ -205,12 +244,21 @@ importers:
       '@wenyan/channel':
         specifier: workspace:*
         version: link:../channel
+      '@wenyan/consensus':
+        specifier: workspace:*
+        version: link:../consensus
       '@wenyan/core':
         specifier: workspace:*
         version: link:../core
+      '@wenyan/crdt':
+        specifier: workspace:*
+        version: link:../crdt
       '@wenyan/gateway':
         specifier: workspace:*
         version: link:../gateway
+      '@wenyan/gossip':
+        specifier: workspace:*
+        version: link:../gossip
       '@wenyan/seal':
         specifier: workspace:*
         version: link:../seal
@@ -291,15 +339,24 @@ importers:
       '@wenyan/channel':
         specifier: workspace:*
         version: link:../channel
+      '@wenyan/consensus':
+        specifier: workspace:*
+        version: link:../consensus
       '@wenyan/core':
         specifier: workspace:*
         version: link:../core
+      '@wenyan/crdt':
+        specifier: workspace:*
+        version: link:../crdt
       '@wenyan/gateway':
         specifier: workspace:*
         version: link:../gateway
       '@wenyan/genesis':
         specifier: workspace:*
         version: link:../genesis
+      '@wenyan/gossip':
+        specifier: workspace:*
+        version: link:../gossip
       '@wenyan/seal':
         specifier: workspace:*
         version: link:../seal

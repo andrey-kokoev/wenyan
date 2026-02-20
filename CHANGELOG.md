@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-02-20
+
+### Added
+- **Consort Scaffolding**: Added `@wenyan/gossip`, `@wenyan/crdt`, and `@wenyan/consensus` packages with SWIM/Plumtree-style membership+broadcast primitives, CRDT merge helpers, and PBFT lifecycle APIs.
+- **Distributed Runtime Config**: Added bootstrap config sections for `[distributed]`, `[consensus]`, and `[sync]` with safe defaults (`mode = single`, `consensus = none`).
+- **Archive v5 Foundations**: Added content-addressed storage metadata, gossip log table, archive state roots, sync-range API, and Merkle root/proof interfaces in SQLite and Cloudflare adapters.
+- **Mesh API/CLI Surface**: Added gateway mesh endpoints (mounted at `/api/wenyan/mesh/*` in server runtime: `/join`, `/sync`, `/status`, `/merkle-root`) and CLI commands (`sync --peer`, `mesh status`, `--join gossip://...` support).
+- **Consort E2E Harness**: Added `packages/tests/e2e/consort.test.ts` for single-mode compatibility, mesh endpoint behavior, and PBFT gating behavior.
+
+### Changed
+- **Pipeline Gate (Feature-flagged)**: In consort+pbft mode, `ti_definition` documents can remain pending until PBFT threshold is reached.
+- **Gateway/Server Wiring**: Distributed mode remains opt-in; single-node strict behavior remains default and backward-compatible.
+
 ## [0.3.0] - Unreleased
 
 ### Added
@@ -59,3 +72,4 @@ All notable changes to this project are documented in this file.
 
 [0.2.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.2.0
 [0.3.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.3.0
+[0.4.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.4.0

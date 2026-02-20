@@ -15,6 +15,9 @@ const packages: PkgSpec[] = [
   { name: '@wenyan/pipeline', dir: 'packages/pipeline' },
   { name: '@wenyan/gateway', dir: 'packages/gateway' },
   { name: '@wenyan/channel', dir: 'packages/channel' },
+  { name: '@wenyan/gossip', dir: 'packages/gossip' },
+  { name: '@wenyan/crdt', dir: 'packages/crdt' },
+  { name: '@wenyan/consensus', dir: 'packages/consensus' },
   { name: '@wenyan/genesis', dir: 'packages/genesis' },
   { name: '@wenyan/cli', dir: 'packages/cli' },
 ]

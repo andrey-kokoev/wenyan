@@ -22,6 +22,9 @@ If you want to understand the architectural rationale and design principles behi
 - `packages/pipeline` (`@wenyan/pipeline`) - Caoni/Shenfu/Pizhun stages + law resolver
 - `packages/gateway` (`@wenyan/gateway`) - gateway routes and Tongzheng Si input filter
 - `packages/channel` (`@wenyan/channel`) - reliable local broadcast channel
+- `packages/gossip` (`@wenyan/gossip`) - SWIM/Plumtree-style consort gossip primitives
+- `packages/crdt` (`@wenyan/crdt`) - CRDT reconciliation for legislative conflicts
+- `packages/consensus` (`@wenyan/consensus`) - PBFT lifecycle for constitutional consensus
 - `packages/genesis` (`@wenyan/genesis`) - explicit genesis bootstrap (`createEmptyOffice`, `applyGenesis`)
 - `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`
 - `packages/tests` - shared fixtures used by server tests
@@ -44,6 +47,10 @@ If you want to understand the architectural rationale and design principles behi
 - `GET /api/wenyan/messages/:id`
 - `GET /api/wenyan/messages?state=...`
 - `GET /api/wenyan/stream`
+- `GET /api/wenyan/mesh/status`
+- `POST /api/wenyan/mesh/join`
+- `POST /api/wenyan/mesh/sync`
+- `GET /api/wenyan/mesh/merkle-root`
 
 ## Configuration
 
@@ -67,6 +74,20 @@ port = 8787
 
 [law]
 mode = "strict"
+
+[distributed]
+mode = "single"
+node_id = "node-a"
+bind_gossip = "127.0.0.1:7946"
+seeds = []
+fanout = 3
+suspicion_timeout_ms = 5000
+
+[consensus]
+kind = "none"
+replica_set = []
+constitutional_threshold = 3
+view_change_timeout_ms = 5000
 ```
 
 ## Commands
@@ -79,6 +100,9 @@ mode = "strict"
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm build`
+- `wenyan --join gossip://seed:7946`
+- `wenyan sync --peer gossip://seed:7946`
+- `wenyan mesh status`
 
 ## Installation From GitHub Packages
 
@@ -107,6 +131,9 @@ Published packages in v0.3.x:
 - `@wenyan/pipeline`
 - `@wenyan/gateway`
 - `@wenyan/channel`
+- `@wenyan/gossip`
+- `@wenyan/crdt`
+- `@wenyan/consensus`
 - `@wenyan/genesis`
 - `@wenyan/cli`
 

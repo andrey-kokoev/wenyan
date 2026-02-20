@@ -58,6 +58,9 @@ jobs:
             --filter @wenyan/pipeline \
             --filter @wenyan/gateway \
             --filter @wenyan/channel \
+            --filter @wenyan/gossip \
+            --filter @wenyan/crdt \
+            --filter @wenyan/consensus \
             --filter @wenyan/genesis \
             --filter @wenyan/cli \
             publish --no-git-checks --access public

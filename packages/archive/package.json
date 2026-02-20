@@ -1,6 +1,6 @@
 {
   "name": "@wenyan/archive",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -32,6 +32,14 @@
     "./adapter": {
       "types": "./dist/adapter.d.ts",
       "import": "./dist/adapter.js"
+    },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "import": "./dist/sync.js"
+    },
+    "./merkle-dag": {
+      "types": "./dist/merkle-dag.d.ts",
+      "import": "./dist/merkle-dag.js"
     }
   },
   "scripts": {

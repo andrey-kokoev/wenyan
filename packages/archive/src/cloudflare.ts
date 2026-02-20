@@ -8,7 +8,8 @@ import {
   type Transition,
 } from '@wenyan/core'
 import type { SealRecord } from '@wenyan/seal'
-import type { ArchiveRepository, ConstitutionalDocumentRef, DocketItem, TiDefinitionRecord } from './index'
+import type { ArchiveRepository, ConstitutionalDocumentRef, DocketItem, GossipLogEntry, MerkleProof, TiDefinitionRecord } from './index'
+import { merkleRootForLeaves } from './merkle-dag'
 
 export interface D1DatabaseLike {
   prepare(query: string): {
@@ -47,6 +48,9 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         genre TEXT,
         payload_json TEXT NOT NULL,
         seal_chain_json TEXT NOT NULL DEFAULT '[]',
+        origin_node_id TEXT,
+        vector_clock_json TEXT,
+        content_hash TEXT,
         constitutional INTEGER NOT NULL DEFAULT 0,
         superseded_by TEXT,
         received_at TEXT NOT NULL,
@@ -122,9 +126,33 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         superseded_by TEXT,
         sealed_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS archive_state (
+        scope TEXT PRIMARY KEY,
+        merkle_root TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS content_store (
+        hash TEXT PRIMARY KEY,
+        payload_blob BLOB NOT NULL,
+        ref_count INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS gossip_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL,
+        peer_node_id TEXT NOT NULL,
+        seal_seq INTEGER NOT NULL,
+        received_at TEXT NOT NULL,
+        kind TEXT NOT NULL
+      );
     `)
 
     await this.tryExec('ALTER TABLE messages ADD COLUMN genre TEXT')
+    await this.tryExec('ALTER TABLE messages ADD COLUMN origin_node_id TEXT')
+    await this.tryExec('ALTER TABLE messages ADD COLUMN vector_clock_json TEXT')
+    await this.tryExec('ALTER TABLE messages ADD COLUMN content_hash TEXT')
     await this.tryExec('ALTER TABLE messages ADD COLUMN constitutional INTEGER NOT NULL DEFAULT 0')
     await this.tryExec('ALTER TABLE messages ADD COLUMN superseded_by TEXT')
     await this.tryExec('ALTER TABLE messages ADD COLUMN submitted_at TEXT')
@@ -132,10 +160,12 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
 
     await this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_messages_genre ON messages(genre);
+      CREATE INDEX IF NOT EXISTS idx_messages_content_hash ON messages(content_hash);
       CREATE INDEX IF NOT EXISTS idx_constitutional_genre ON messages(constitutional, genre, archived_at);
       CREATE INDEX IF NOT EXISTS idx_edict_lookup ON edict_index(law_type, effective_date DESC, precedence DESC, sealed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_edict_supersession ON edict_index(superseded_edict_id);
       CREATE INDEX IF NOT EXISTS idx_ti_lookup ON ti_definition_index(target_genre, sealed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_gossip_peer_received ON gossip_log(peer_node_id, received_at DESC);
     `)
   }
 
@@ -267,6 +297,27 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         .bind(v4Hash, latestPostV3.migration_hash, new Date().toISOString())
         .run()
     }
+
+    const latestPostV4 = await this.db
+      .prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1')
+      .bind()
+      .first<{ version: number; migration_hash: string }>()
+    if (!latestPostV4) return
+    const v5Hash = sha256(`${latestPostV4.migration_hash}:archive-schema-v5-consort`)
+    if (latestPostV4.version < 5) {
+      await this.db.exec(`
+        UPDATE messages
+        SET origin_node_id = COALESCE(origin_node_id, json_extract(payload_json, '$.metadata.consort.origin_node_id'), 'local-node');
+        UPDATE messages
+        SET vector_clock_json = COALESCE(vector_clock_json, json_object(COALESCE(origin_node_id, 'local-node'), 1));
+        UPDATE messages
+        SET content_hash = COALESCE(content_hash, lower(hex(randomblob(16))));
+      `)
+      await this.db
+        .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(5, ?, ?, ?)')
+        .bind(v5Hash, latestPostV4.migration_hash, new Date().toISOString())
+        .run()
+    }
   }
 
   async appendMessage(message: MessageEnvelope): Promise<void> {
@@ -277,9 +328,25 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       (typeof payload.superseded_by === 'string' ? payload.superseded_by : undefined) ??
       (typeof payload.superseded_edict_id === 'string' ? payload.superseded_edict_id : undefined) ??
       null
+    const consort = (metadata.consort as Record<string, unknown> | undefined) ?? {}
+    const originNodeId = typeof consort.origin_node_id === 'string' ? consort.origin_node_id : 'local-node'
+    const vectorClock = consort.vector_clock && typeof consort.vector_clock === 'object' ? consort.vector_clock : { [originNodeId]: 1 }
+    const contentHash = sha256(JSON.stringify(message.payload))
     await this.db
-      .prepare('INSERT INTO messages(id, genre, payload_json, seal_chain_json, constitutional, superseded_by, received_at, submitted_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(message.id, message.genre, JSON.stringify(message), '[]', constitutional, supersededBy, new Date().toISOString(), message.submittedAt)
+      .prepare('INSERT INTO messages(id, genre, payload_json, seal_chain_json, origin_node_id, vector_clock_json, content_hash, constitutional, superseded_by, received_at, submitted_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(
+        message.id,
+        message.genre,
+        JSON.stringify(message),
+        '[]',
+        originNodeId,
+        JSON.stringify(vectorClock),
+        contentHash,
+        constitutional,
+        supersededBy,
+        new Date().toISOString(),
+        message.submittedAt,
+      )
       .run()
   }
 
@@ -589,6 +656,86 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       id: String(r.id),
       archivedAt: String(r.archived_at),
     }))
+  }
+
+  async getMerkleRoot(scope: 'all' | 'constitutional' | 'legislative' = 'all'): Promise<string> {
+    let where = 'archived_at IS NOT NULL'
+    if (scope === 'constitutional') where += ' AND constitutional = 1'
+    if (scope === 'legislative') where += " AND genre = 'edict'"
+    const rows = await this.db
+      .prepare(`SELECT COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
+      .bind()
+      .all<Array<Record<string, unknown>>>()
+    const root = merkleRootForLeaves((rows as { results: Array<Record<string, unknown>> }).results.map((r) => String(r.h)))
+    await this.db
+      .prepare(
+        `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
+         ON CONFLICT(scope) DO UPDATE SET merkle_root = excluded.merkle_root, updated_at = excluded.updated_at`,
+      )
+      .bind(scope, root, new Date().toISOString())
+      .run()
+    return root
+  }
+
+  async getMerkleProof(messageId: string): Promise<MerkleProof | undefined> {
+    const row = await this.db
+      .prepare('SELECT COALESCE(content_hash, id) AS h FROM messages WHERE id = ?')
+      .bind(messageId)
+      .first<{ h?: string }>()
+    if (!row?.h) return undefined
+    return { messageId, leafHash: row.h, rootHash: await this.getMerkleRoot('all'), path: [] }
+  }
+
+  async getSyncRange(fromCursor: string, limit: number): Promise<Transition[]> {
+    const cursor = Number(fromCursor) || 0
+    const rows = await this.db
+      .prepare(
+        `SELECT id, message_id, from_state, to_state, sequence_no, actor_id, sealed_at, reason, prev_transition_hash, at
+         FROM transitions
+         WHERE id > ?
+         ORDER BY id ASC
+         LIMIT ?`,
+      )
+      .bind(cursor, limit)
+      .all<Array<Record<string, unknown>>>()
+    return (rows as { results: Array<Record<string, unknown>> }).results.map((r) => ({
+      messageId: String(r.message_id),
+      fromState: r.from_state as Transition['fromState'],
+      toState: r.to_state as Transition['toState'],
+      sequenceNo: Number(r.sequence_no),
+      actorId: r.actor_id ? String(r.actor_id) : undefined,
+      sealedAt: r.sealed_at ? String(r.sealed_at) : undefined,
+      reason: r.reason ? String(r.reason) : undefined,
+      prevTransitionHash: r.prev_transition_hash ? String(r.prev_transition_hash) : undefined,
+      at: String(r.at),
+    }))
+  }
+
+  async upsertContentBlob(hash: string, payload: Uint8Array | string): Promise<void> {
+    const raw = typeof payload === 'string' ? Buffer.from(payload) : Buffer.from(payload)
+    await this.db
+      .prepare(
+        `INSERT INTO content_store(hash, payload_blob, ref_count) VALUES(?, ?, 1)
+         ON CONFLICT(hash) DO UPDATE SET ref_count = ref_count + 1`,
+      )
+      .bind(hash, raw)
+      .run()
+  }
+
+  async getContentBlob(hash: string): Promise<Uint8Array | undefined> {
+    const row = await this.db
+      .prepare('SELECT payload_blob FROM content_store WHERE hash = ?')
+      .bind(hash)
+      .first<{ payload_blob?: ArrayBuffer | Uint8Array }>()
+    if (!row?.payload_blob) return undefined
+    return new Uint8Array(row.payload_blob as ArrayBuffer)
+  }
+
+  async appendGossipLog(entry: GossipLogEntry): Promise<void> {
+    await this.db
+      .prepare('INSERT INTO gossip_log(message_id, peer_node_id, seal_seq, received_at, kind) VALUES(?, ?, ?, ?, ?)')
+      .bind(entry.messageId, entry.peerNodeId, entry.sealSeq, entry.receivedAt, entry.kind)
+      .run()
   }
 
   private async indexArchivedMessage(messageId: string, sealedAt: string): Promise<void> {

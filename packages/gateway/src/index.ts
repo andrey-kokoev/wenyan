@@ -45,10 +45,25 @@ function requiredOffices(message: { payload: Record<string, unknown> }): string[
 
 export interface GatewayRuntimeOptions {
   lawMode?: LawMode
+  distributedMode?: 'single' | 'consort'
+  consensusKind?: 'none' | 'pbft'
+  pbftConsensus?: {
+    proposeTiDefinition(proposalId: string, leaderNodeId: string): unknown
+    onPrepare(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
+    onCommit(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
+    commitIfThreshold(proposalId: string): boolean
+    currentView(): number
+  }
+  nodeId?: string
   lawCacheTtlSeconds?: number
   lawPreloadTypes?: EdictLawType[]
   onLawEvent?: (event: LawResolverEvent) => void
   lawResolver?: LawResolver
+  onMeshJoin?: (peer: string) => Promise<{ ok: boolean; detail?: string }> | { ok: boolean; detail?: string }
+  onMeshSync?: (peer: string, fromCursor: string, limit: number) => Promise<{ ok: boolean; fetched: number }> | { ok: boolean; fetched: number }
+  meshMembers?: () => Array<{ nodeId: string; address: string; state: string }>
+  meshPartitioned?: () => boolean
+  onSealGossip?: (messageId: string, sealSeq: number) => void | Promise<void>
 }
 
 async function validateByArchivedTi(
@@ -205,6 +220,10 @@ export function buildGateway(
         const result = await processDocketMessage(repo, item.messageId, sealContext, {
           lawResolver: resolver,
           lawMode: options.lawMode ?? 'strict',
+          distributedMode: options.distributedMode ?? 'single',
+          consensusKind: options.consensusKind ?? 'none',
+          pbftConsensus: options.pbftConsensus,
+          nodeId: options.nodeId,
           lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
           lawPreloadTypes: options.lawPreloadTypes,
           onLawEvent: options.onLawEvent,
@@ -216,6 +235,12 @@ export function buildGateway(
           const payload = message.payload as Record<string, unknown>
           const targetGenre = typeof payload.target_genre === 'string' ? payload.target_genre : undefined
           tiResolver.invalidate(targetGenre)
+        }
+        if ((options.distributedMode ?? 'single') === 'consort') {
+          await options.onSealGossip?.(item.messageId, 5)
+          if (result.finalState === 'archived') {
+            await options.onSealGossip?.(item.messageId, 6)
+          }
         }
         const transitions = await repo.getTransitions(item.messageId)
         const last = transitions[transitions.length - 1]
@@ -289,6 +314,10 @@ export function buildGateway(
       const result = await finalizePendingMessage(repo, id, sealContext, {
         lawResolver: resolver,
         lawMode: options.lawMode ?? 'strict',
+        distributedMode: options.distributedMode ?? 'single',
+        consensusKind: options.consensusKind ?? 'none',
+        pbftConsensus: options.pbftConsensus,
+        nodeId: options.nodeId,
         lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
         lawPreloadTypes: options.lawPreloadTypes,
         onLawEvent: options.onLawEvent,
@@ -348,6 +377,46 @@ export function buildGateway(
       const count = (await repo.getConstitutionalDocuments()).length
       return c.json({ root, count })
     })()
+  })
+
+  app.get('/mesh/merkle-root', (c) => {
+    const runtimePromise = resolveRuntime()
+    return (async () => {
+      const { repo } = await runtimePromise
+      const root = await repo.getMerkleRoot('all')
+      return c.json({ mode: options.distributedMode ?? 'single', root })
+    })()
+  })
+
+  app.get('/mesh/status', (c) => {
+    return c.json({
+      mode: options.distributedMode ?? 'single',
+      partitioned: options.meshPartitioned?.() ?? false,
+      members: options.meshMembers?.() ?? [],
+    })
+  })
+
+  app.post('/mesh/join', async (c) => {
+    const body = (await c.req.json()) as { peer?: string }
+    if (!body.peer) return c.json({ error: 'peer-required' }, 400)
+    if (!options.onMeshJoin) return c.json({ error: 'mesh-not-configured' }, 503)
+    const result = await options.onMeshJoin(body.peer)
+    return c.json(result, result.ok ? 200 : 409)
+  })
+
+  app.post('/mesh/sync', async (c) => {
+    const runtimePromise = resolveRuntime()
+    const body = (await c.req.json()) as { peer?: string; fromCursor?: string; limit?: number }
+    if (!body.peer) return c.json({ error: 'peer-required' }, 400)
+    const fromCursor = body.fromCursor ?? '0'
+    const limit = Number.isFinite(body.limit) ? Number(body.limit) : 200
+    if (body.peer === 'local' || !options.onMeshSync) {
+      const { repo } = await runtimePromise
+      const transitions = await repo.getSyncRange(fromCursor, limit)
+      return c.json({ ok: true, transitions }, 200)
+    }
+    const result = await options.onMeshSync(body.peer, fromCursor, limit)
+    return c.json(result, result.ok ? 200 : 409)
   })
 
   return app

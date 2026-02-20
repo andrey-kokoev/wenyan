@@ -89,6 +89,25 @@ function defaultConfig(): BootstrapConfig {
       ttl_seconds: 60,
       preload_types: ['appointment', 'classification'],
     },
+    distributed: {
+      mode: 'single',
+      node_id: 'local-node',
+      bind_gossip: '127.0.0.1:7946',
+      seeds: [],
+      fanout: 3,
+      suspicion_timeout_ms: 5000,
+    },
+    consensus: {
+      kind: 'none',
+      replica_set: [],
+      constitutional_threshold: 3,
+      view_change_timeout_ms: 5000,
+    },
+    sync: {
+      batch_size: 200,
+      max_inflight: 4,
+      retry_backoff_ms: 300,
+    },
   }
 }
 

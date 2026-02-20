@@ -88,6 +88,9 @@ async function initOffice(pathArg?: string): Promise<void> {
 }
 
 function normalizePeerUrl(peer: string): string {
+  if (peer.startsWith('gossip://')) {
+    return `http://${peer.slice('gossip://'.length)}`
+  }
   if (peer.startsWith('tcp://')) {
     return `http://${peer.slice('tcp://'.length)}`
   }
@@ -133,7 +136,35 @@ async function joinPeer(peer?: string): Promise<void> {
 
   const marker = resolve('.wenyan-join')
   await writeFile(marker, `${peer}\n`, 'utf8')
+
+  try {
+    await fetch(`${peerBase.replace(/\/$/, '')}/api/wenyan/mesh/join`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ peer: 'local' }),
+    })
+  } catch {
+    // best-effort mesh join hook
+  }
   console.log(`joined peer: ${peer}`)
+}
+
+async function syncPeer(peer?: string): Promise<void> {
+  if (!peer) throw new Error('sync requires --peer gossip://host:port')
+  const peerBase = normalizePeerUrl(peer)
+  const res = await fetch(`${baseUrl}/mesh/sync`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ peer: peerBase, fromCursor: '0', limit: 200 }),
+  })
+  const json = await res.json()
+  console.log(JSON.stringify(json, null, 2))
+}
+
+async function meshStatus(): Promise<void> {
+  const res = await fetch(`${baseUrl}/mesh/status`)
+  const json = await res.json()
+  console.log(JSON.stringify(json, null, 2))
 }
 
 async function submit(arg?: string): Promise<void> {
@@ -170,6 +201,17 @@ async function main() {
     return
   }
 
+  if (cmd === 'sync') {
+    const peer = argValue('--peer', args) ?? arg
+    await syncPeer(peer)
+    return
+  }
+
+  if (cmd === 'mesh' && args[1] === 'status') {
+    await meshStatus()
+    return
+  }
+
   if (cmd === 'draft') {
     await draft(args.slice(1))
     return
@@ -200,12 +242,12 @@ async function main() {
   }
 
   if (!cmd && existsSync('wenyan.toml')) {
-    console.log('wenyan office detected. use: genesis apply | draft | submit | status | query | stream')
+    console.log('wenyan office detected. use: genesis apply | draft | submit | status | query | stream | sync | mesh status')
     return
   }
 
   console.error(
-    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream',
+    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | sync --peer <gossip://host:port> | mesh status | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream',
   )
   process.exit(1)
 }

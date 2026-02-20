@@ -2,9 +2,9 @@
 
 Out of Scope
 
-Wenyan does not implement novel transport protocols. It operates over existing HTTP/WebSocket/TCP channels without optimizing for congestion control, mesh networking, or peer discovery. The Yichuan package provides reliability guarantees atop existing sockets, not socket innovations.
+Wenyan does not implement novel transport protocols. It operates over existing HTTP/WebSocket/TCP channels and only provides lightweight mesh membership/broadcast primitives for consort mode; congestion control and low-level network protocol innovation remain out of scope.
 
-Wenyan does not solve Byzantine consensus. The archive assumes single-node SQLite or trusted replication between known nodes. Distributed consensus algorithms (Raft, PBFT, HotStuff) are excluded; network partitions between wenyan nodes result in explicit unavailability rather than eventual consistency guarantees.
+Wenyan does not attempt a full general-purpose distributed database. PBFT-style constitutional consensus in consort mode is limited to `ti_definition` governance flow, with strict feature gating and explicit operator configuration.
 
 Wenyan does not execute business logic. The pipeline validates document structure and authorization chains, then appends to log. Domain-specific state transitions (inventory management, payment processing, fitness class scheduling) occur in downstream consumers reading the archive, not within wenyan's core state machine.
 

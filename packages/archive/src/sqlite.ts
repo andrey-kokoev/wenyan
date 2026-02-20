@@ -10,7 +10,8 @@ import {
   type Transition,
 } from '@wenyan/core'
 import type { SealRecord } from '@wenyan/seal'
-import type { ArchiveRepository, ConstitutionalDocumentRef, DocketItem, TiDefinitionRecord } from './index'
+import type { ArchiveRepository, ConstitutionalDocumentRef, DocketItem, GossipLogEntry, MerkleProof, TiDefinitionRecord } from './index'
+import { merkleRootForLeaves } from './merkle-dag'
 
 interface ArchiveOptions {
   retentionDays?: number
@@ -38,6 +39,9 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         genre TEXT,
         payload_json TEXT NOT NULL,
         seal_chain_json TEXT NOT NULL DEFAULT '[]',
+        origin_node_id TEXT,
+        vector_clock_json TEXT,
+        content_hash TEXT,
         constitutional INTEGER NOT NULL DEFAULT 0,
         superseded_by TEXT,
         received_at TEXT NOT NULL,
@@ -126,11 +130,35 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         sealed_at TEXT NOT NULL,
         FOREIGN KEY(message_id) REFERENCES messages(id)
       );
+
+      CREATE TABLE IF NOT EXISTS archive_state (
+        scope TEXT PRIMARY KEY,
+        merkle_root TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS content_store (
+        hash TEXT PRIMARY KEY,
+        payload_blob BLOB NOT NULL,
+        ref_count INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS gossip_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL,
+        peer_node_id TEXT NOT NULL,
+        seal_seq INTEGER NOT NULL,
+        received_at TEXT NOT NULL,
+        kind TEXT NOT NULL
+      );
     `)
 
     const cols = this.db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
     const colNames = new Set(cols.map((c) => c.name))
     if (!colNames.has('genre')) this.db.exec('ALTER TABLE messages ADD COLUMN genre TEXT')
+    if (!colNames.has('origin_node_id')) this.db.exec('ALTER TABLE messages ADD COLUMN origin_node_id TEXT')
+    if (!colNames.has('vector_clock_json')) this.db.exec('ALTER TABLE messages ADD COLUMN vector_clock_json TEXT')
+    if (!colNames.has('content_hash')) this.db.exec('ALTER TABLE messages ADD COLUMN content_hash TEXT')
     if (!colNames.has('constitutional')) this.db.exec('ALTER TABLE messages ADD COLUMN constitutional INTEGER NOT NULL DEFAULT 0')
     if (!colNames.has('superseded_by')) this.db.exec('ALTER TABLE messages ADD COLUMN superseded_by TEXT')
     if (!colNames.has('submitted_at')) this.db.exec('ALTER TABLE messages ADD COLUMN submitted_at TEXT')
@@ -138,10 +166,12 @@ export class SqliteArchiveRepository implements ArchiveRepository {
 
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_messages_genre ON messages(genre);
+      CREATE INDEX IF NOT EXISTS idx_messages_content_hash ON messages(content_hash);
       CREATE INDEX IF NOT EXISTS idx_constitutional_genre ON messages(constitutional, genre, archived_at);
       CREATE INDEX IF NOT EXISTS idx_edict_lookup ON edict_index(law_type, effective_date DESC, precedence DESC, sealed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_edict_supersession ON edict_index(superseded_edict_id);
       CREATE INDEX IF NOT EXISTS idx_ti_lookup ON ti_definition_index(target_genre, sealed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_gossip_peer_received ON gossip_log(peer_node_id, received_at DESC);
     `)
   }
 
@@ -266,6 +296,25 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(4, ?, ?, ?)')
         .run(v4Hash, latestPostV3.migration_hash, new Date().toISOString())
     }
+
+    const latestPostV4 = this.db.prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1').get() as
+      | { version: number; migration_hash: string }
+      | undefined
+    if (!latestPostV4) return
+    const v5Hash = sha256(`${latestPostV4.migration_hash}:archive-schema-v5-consort`)
+    if (latestPostV4.version < 5) {
+      this.db.exec(`
+        UPDATE messages
+        SET origin_node_id = COALESCE(origin_node_id, json_extract(payload_json, '$.metadata.consort.origin_node_id'), 'local-node');
+        UPDATE messages
+        SET vector_clock_json = COALESCE(vector_clock_json, json_object(COALESCE(origin_node_id, 'local-node'), 1));
+        UPDATE messages
+        SET content_hash = COALESCE(content_hash, lower(hex(randomblob(16))));
+      `)
+      this.db
+        .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(5, ?, ?, ?)')
+        .run(v5Hash, latestPostV4.migration_hash, new Date().toISOString())
+    }
   }
 
   appendMessage(message: MessageEnvelope): void {
@@ -276,13 +325,20 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       (typeof payload.superseded_by === 'string' ? payload.superseded_by : undefined) ??
       (typeof payload.superseded_edict_id === 'string' ? payload.superseded_edict_id : undefined) ??
       null
+    const consort = (metadata.consort as Record<string, unknown> | undefined) ?? {}
+    const originNodeId = typeof consort.origin_node_id === 'string' ? consort.origin_node_id : 'local-node'
+    const vectorClock = consort.vector_clock && typeof consort.vector_clock === 'object' ? consort.vector_clock : { [originNodeId]: 1 }
+    const contentHash = sha256(JSON.stringify(message.payload))
     this.db
-      .prepare('INSERT INTO messages(id, genre, payload_json, seal_chain_json, constitutional, superseded_by, received_at, submitted_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
+      .prepare('INSERT INTO messages(id, genre, payload_json, seal_chain_json, origin_node_id, vector_clock_json, content_hash, constitutional, superseded_by, received_at, submitted_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(
         message.id,
         message.genre,
         JSON.stringify(message),
         '[]',
+        originNodeId,
+        JSON.stringify(vectorClock),
+        contentHash,
         constitutional,
         supersededBy,
         new Date().toISOString(),
@@ -616,6 +672,93 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
       .all() as Array<{ id: string; archived_at: string }>
     return rows.map((r) => ({ id: r.id, archivedAt: r.archived_at }))
+  }
+
+  getMerkleRoot(scope: 'all' | 'constitutional' | 'legislative' = 'all'): string {
+    let where = 'archived_at IS NOT NULL'
+    if (scope === 'constitutional') where += ' AND constitutional = 1'
+    if (scope === 'legislative') where += " AND genre = 'edict'"
+    const rows = this.db
+      .prepare(`SELECT COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
+      .all() as Array<{ h: string }>
+    const root = merkleRootForLeaves(rows.map((r) => r.h))
+    this.db
+      .prepare(
+        `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
+         ON CONFLICT(scope) DO UPDATE SET merkle_root = excluded.merkle_root, updated_at = excluded.updated_at`,
+      )
+      .run(scope, root, new Date().toISOString())
+    return root
+  }
+
+  getMerkleProof(messageId: string): MerkleProof | undefined {
+    const row = this.db
+      .prepare('SELECT COALESCE(content_hash, id) AS h FROM messages WHERE id = ?')
+      .get(messageId) as { h?: string } | undefined
+    if (!row?.h) return undefined
+    return {
+      messageId,
+      leafHash: row.h,
+      rootHash: this.getMerkleRoot('all'),
+      path: [],
+    }
+  }
+
+  getSyncRange(fromCursor: string, limit: number): Transition[] {
+    const cursor = Number(fromCursor) || 0
+    const rows = this.db
+      .prepare(
+        `SELECT id, message_id, from_state, to_state, sequence_no, actor_id, sealed_at, reason, prev_transition_hash, at
+         FROM transitions
+         WHERE id > ?
+         ORDER BY id ASC
+         LIMIT ?`,
+      )
+      .all(cursor, limit) as Array<{
+      id: number
+      message_id: string
+      from_state: Transition['fromState']
+      to_state: Transition['toState']
+      sequence_no: number
+      actor_id: string | null
+      sealed_at: string | null
+      reason: string | null
+      prev_transition_hash: string | null
+      at: string
+    }>
+    return rows.map((r) => ({
+      messageId: r.message_id,
+      fromState: r.from_state,
+      toState: r.to_state,
+      sequenceNo: r.sequence_no,
+      actorId: r.actor_id ?? undefined,
+      sealedAt: r.sealed_at ?? undefined,
+      reason: r.reason ?? undefined,
+      prevTransitionHash: r.prev_transition_hash ?? undefined,
+      at: r.at,
+    }))
+  }
+
+  upsertContentBlob(hash: string, payload: Uint8Array | string): void {
+    const blob = typeof payload === 'string' ? Buffer.from(payload) : Buffer.from(payload)
+    this.db
+      .prepare(
+        `INSERT INTO content_store(hash, payload_blob, ref_count) VALUES(?, ?, 1)
+         ON CONFLICT(hash) DO UPDATE SET ref_count = ref_count + 1`,
+      )
+      .run(hash, blob)
+  }
+
+  getContentBlob(hash: string): Uint8Array | undefined {
+    const row = this.db.prepare('SELECT payload_blob FROM content_store WHERE hash = ?').get(hash) as { payload_blob?: Buffer } | undefined
+    if (!row?.payload_blob) return undefined
+    return new Uint8Array(row.payload_blob)
+  }
+
+  appendGossipLog(entry: GossipLogEntry): void {
+    this.db
+      .prepare('INSERT INTO gossip_log(message_id, peer_node_id, seal_seq, received_at, kind) VALUES(?, ?, ?, ?, ?)')
+      .run(entry.messageId, entry.peerNodeId, entry.sealSeq, entry.receivedAt, entry.kind)
   }
 
   private indexArchivedMessage(messageId: string, sealedAt: string): void {

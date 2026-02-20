@@ -62,6 +62,7 @@ export const RegulationLawContentSchema = z.object({
 })
 
 export const LawModeSchema = z.enum(['strict'])
+export const LawConflictResolutionSchema = z.enum(['lww', 'manual_schism'])
 
 export interface ResolvedLaw {
   messageId: string
@@ -83,6 +84,7 @@ export type AdmissionLawContent = z.infer<typeof AdmissionLawContentSchema>
 export type ProtocolLawContent = z.infer<typeof ProtocolLawContentSchema>
 export type RegulationLawContent = z.infer<typeof RegulationLawContentSchema>
 export type LawMode = z.infer<typeof LawModeSchema>
+export type LawConflictResolution = z.infer<typeof LawConflictResolutionSchema>
 
 export function validateEdict(input: unknown) {
   return EdictSchema.parse(input)

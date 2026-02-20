@@ -24,6 +24,12 @@ function fakeArchive(result: TiDefinitionRecord | undefined): ArchiveRepository 
     getCurrentLaw: vi.fn(),
     getLawSet: vi.fn(),
     getConstitutionalDocuments: vi.fn(),
+    getMerkleRoot: vi.fn(),
+    getMerkleProof: vi.fn(),
+    getSyncRange: vi.fn(),
+    upsertContentBlob: vi.fn(),
+    getContentBlob: vi.fn(),
+    appendGossipLog: vi.fn(),
   } as unknown as ArchiveRepository
 }
 

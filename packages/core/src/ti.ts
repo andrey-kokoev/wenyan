@@ -18,6 +18,14 @@ export const LawSnapshotSchema = z.object({
   at: z.string().datetime(),
 })
 
+export const VectorClockSchema = z.record(z.string(), z.number().int().nonnegative())
+
+export const ConsortEnvelopeMetaSchema = z.object({
+  origin_node_id: z.string().min(1),
+  vector_clock: VectorClockSchema.default({}),
+  gossip_seq: z.number().int().nonnegative().default(0),
+})
+
 export const MessageEnvelopeSchema = z.object({
   id: z.string().min(1),
   genre: z.string().min(1),
@@ -50,3 +58,6 @@ export const TransitionSchema = z.object({
   prevTransitionHash: z.string().min(1).optional(),
   at: z.string().datetime(),
 })
+
+export type VectorClock = z.infer<typeof VectorClockSchema>
+export type ConsortEnvelopeMeta = z.infer<typeof ConsortEnvelopeMetaSchema>
