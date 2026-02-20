@@ -1,5 +1,6 @@
 import type { EdictLawType, MessageEnvelope, MessageState, ResolvedLaw, Transition } from '@wenyan/core'
 import type { SealRecord } from '@wenyan/seal'
+import type { Seal0Receipt } from '@wenyan/core'
 
 export interface DocketItem {
   id: string
@@ -72,6 +73,26 @@ export interface BridgeOutboundQueueItem {
   status: 'queued' | 'sending' | 'failed' | 'sent'
 }
 
+export interface CensorateAlertRecord {
+  id?: string
+  alertType: string
+  severity: 'info' | 'warning' | 'critical'
+  actorId?: string
+  nodeId?: string
+  evidence: Record<string, unknown>
+  createdAt: string
+  actionTaken?: string
+}
+
+export interface AuditCheckpointRecord {
+  id?: string
+  scope: 'all' | 'constitutional' | 'legislative'
+  merkleRoot: string
+  sealCount: number
+  nodeSignatures: string[]
+  createdAt: string
+}
+
 export interface ArchiveRepository {
   appendMessage(message: MessageEnvelope): void | Promise<void>
   appendTransition(transition: Transition): void | Promise<void>
@@ -104,6 +125,21 @@ export interface ArchiveRepository {
   enqueueBridgeOutbound(adapterId: string, messageId: string, availableAt: string): void | Promise<void>
   dequeueBridgeOutbound(nowIso: string, limit: number): BridgeOutboundQueueItem[] | Promise<BridgeOutboundQueueItem[]>
   markBridgeOutboundResult(id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): void | Promise<void>
+  appendSeal0Receipt(receipt: Seal0Receipt): void | Promise<void>
+  querySeal0ByDocument(
+    documentId: string,
+    filters?: { since?: string; actorId?: string; limit?: number },
+  ): Seal0Receipt[] | Promise<Seal0Receipt[]>
+  querySeal0ByGenre(
+    genre: string,
+    filters?: { since?: string; actorId?: string; limit?: number },
+  ): Seal0Receipt[] | Promise<Seal0Receipt[]>
+  appendCensorateAlert(alert: CensorateAlertRecord): void | Promise<void>
+  queryCensorateAlerts(
+    window?: { since?: string; limit?: number; type?: string },
+  ): CensorateAlertRecord[] | Promise<CensorateAlertRecord[]>
+  appendAuditCheckpoint(entry: AuditCheckpointRecord): void | Promise<void>
+  exportAuditBundle(input: { start?: string; end?: string; merkleRoot?: string }): unknown | Promise<unknown>
 }
 
 export * from './query'

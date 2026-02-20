@@ -225,7 +225,7 @@ export async function applyGenesis(
     skipped += 1
   }
 
-  const lawDefaults: Record<EdictLawType, Record<string, unknown>> = {
+  const lawDefaults: Partial<Record<EdictLawType, Record<string, unknown>>> = {
     appointment: {
       roles: {
         genesis_admin: { permissions: ['draft', 'review', 'authorize'], allowed_genres: ['*'], max_pending: 1000 },
@@ -239,13 +239,14 @@ export async function applyGenesis(
   }
 
   const nowIso = new Date().toISOString()
-  for (const lawType of Object.keys(lawDefaults) as EdictLawType[]) {
+  const seededLawTypes: EdictLawType[] = ['appointment', 'classification', 'routing', 'admission', 'protocol', 'regulation']
+  for (const lawType of seededLawTypes) {
     const existing = await repo.getCurrentLaw(lawType, nowIso)
     if (existing) {
       skipped += 1
       continue
     }
-    await appendArchived(repo, makeEdict(lawType, lawDefaults[lawType], actorId), sealContext)
+    await appendArchived(repo, makeEdict(lawType, lawDefaults[lawType] ?? {}, actorId), sealContext)
     applied += 1
   }
 

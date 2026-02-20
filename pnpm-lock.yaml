@@ -23,7 +23,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/archive:
     dependencies:
@@ -42,7 +42,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/bridge:
     dependencies:
@@ -67,7 +67,26 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+
+  packages/censorate:
+    dependencies:
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.0
+      '@wenyan/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^25.2.0
+        version: 25.3.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/channel:
     devDependencies:
@@ -79,7 +98,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/cli:
     dependencies:
@@ -117,7 +136,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/core:
     dependencies:
@@ -133,7 +152,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/crdt:
     dependencies:
@@ -146,7 +165,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/gateway:
     dependencies:
@@ -156,6 +175,9 @@ importers:
       '@wenyan/archive':
         specifier: workspace:*
         version: link:../archive
+      '@wenyan/censorate':
+        specifier: workspace:*
+        version: link:../censorate
       '@wenyan/channel':
         specifier: workspace:*
         version: link:../channel
@@ -180,7 +202,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/genesis:
     dependencies:
@@ -212,7 +234,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/pipeline:
     dependencies:
@@ -237,7 +259,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/seal:
     dependencies:
@@ -259,7 +281,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
   packages/server:
     dependencies:
@@ -301,7 +323,7 @@ importers:
         version: 3.7.0
       drizzle-orm:
         specifier: ^0.45.1
-        version: 0.45.1(@cloudflare/workers-types@4.20260219.0)
+        version: 0.45.1(@cloudflare/workers-types@4.20260219.0)(@opentelemetry/api@1.9.0)
       hono:
         specifier: ^4.11.7
         version: 4.12.0
@@ -332,7 +354,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
       wrangler:
         specifier: ^4.62.0
         version: 4.67.0(@cloudflare/workers-types@4.20260219.0)
@@ -403,7 +425,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.0.18
-        version: 4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
 
 packages:
 
@@ -812,6 +834,10 @@ packages:
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
+
+  '@opentelemetry/api@1.9.0':
+    resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
+    engines: {node: '>=8.0.0'}
 
   '@oslojs/asn1@1.0.0':
     resolution: {integrity: sha512-zw/wn0sj0j0QKbIXfIlnEcTviaCzYOY3V5rAyjR6YtOByFtJiT574+8p9Wlach0lZH9fddD4yb9laEAIl4vXQA==}
@@ -1958,6 +1984,8 @@ snapshots:
 
   '@noble/hashes@1.8.0': {}
 
+  '@opentelemetry/api@1.9.0': {}
+
   '@oslojs/asn1@1.0.0':
     dependencies:
       '@oslojs/binary': 1.0.0
@@ -2181,9 +2209,10 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260219.0):
+  drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260219.0)(@opentelemetry/api@1.9.0):
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260219.0
+      '@opentelemetry/api': 1.9.0
 
   entities@6.0.1: {}
 
@@ -2623,7 +2652,7 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.8.2
 
-  vitest@4.0.18(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2):
+  vitest@4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.0)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.18
       '@vitest/mocker': 4.0.18(vite@7.3.1(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2))
@@ -2646,6 +2675,7 @@ snapshots:
       vite: 7.3.1(@types/node@25.3.0)(jiti@2.6.1)(lightningcss@1.31.1)(stylus@0.57.0)(tsx@4.21.0)(yaml@2.8.2)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@opentelemetry/api': 1.9.0
       '@types/node': 25.3.0
       jsdom: 26.1.0
     transitivePeerDependencies:

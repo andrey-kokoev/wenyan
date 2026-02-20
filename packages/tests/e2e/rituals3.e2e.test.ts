@@ -142,7 +142,7 @@ function seedGenesisConstitution(repo: SqliteArchiveRepository): void {
   }
 
   const nowIso = new Date().toISOString()
-  const base: Record<EdictLawType, Record<string, unknown>> = {
+  const base: Partial<Record<EdictLawType, Record<string, unknown>>> = {
     appointment: {
       roles: {
         admin: {
@@ -173,11 +173,12 @@ function seedGenesisConstitution(repo: SqliteArchiveRepository): void {
     },
   }
 
-  for (const lawType of Object.keys(base) as EdictLawType[]) {
+  const seededLawTypes: EdictLawType[] = ['appointment', 'classification', 'routing', 'admission', 'protocol', 'regulation']
+  for (const lawType of seededLawTypes) {
     if (repo.getCurrentLaw(lawType, nowIso)) continue
     archiveSeed(
       repo,
-      makeEdict(`genesis-edict-${lawType}`, lawType, base[lawType], 0, '2026-01-01T00:00:10.000Z'),
+      makeEdict(`genesis-edict-${lawType}`, lawType, base[lawType] ?? {}, 0, '2026-01-01T00:00:10.000Z'),
       '2026-01-01T00:00:10.000Z',
     )
   }

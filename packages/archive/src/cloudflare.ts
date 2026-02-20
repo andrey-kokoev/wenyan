@@ -2,6 +2,7 @@ import {
   canTransition,
   EdictLawTypeValues,
   type EdictLawType,
+  type Seal0Receipt,
   type MessageEnvelope,
   type MessageState,
   type ResolvedLaw,
@@ -17,6 +18,8 @@ import type {
   ForeignSyncStateRecord,
   GossipLogEntry,
   MerkleProof,
+  CensorateAlertRecord,
+  AuditCheckpointRecord,
   TiDefinitionRecord,
 } from './index'
 import { merkleRootForLeaves } from './merkle-dag'
@@ -188,6 +191,41 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         last_error TEXT,
         status TEXT NOT NULL DEFAULT 'queued'
       );
+
+      CREATE TABLE IF NOT EXISTS seal_0_log (
+        id TEXT PRIMARY KEY,
+        document_id TEXT,
+        actor_id TEXT NOT NULL,
+        genre TEXT,
+        query_timestamp TEXT NOT NULL,
+        query_parameters_hash TEXT NOT NULL,
+        result_hash TEXT NOT NULL,
+        result_status TEXT NOT NULL,
+        reason TEXT,
+        signature TEXT NOT NULL,
+        trace_id TEXT,
+        node_id TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS censorate_alerts (
+        id TEXT PRIMARY KEY,
+        alert_type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        actor_id TEXT,
+        node_id TEXT,
+        evidence_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        action_taken TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS audit_checkpoints (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        merkle_root TEXT NOT NULL,
+        seal_count INTEGER NOT NULL,
+        node_signatures_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `)
 
     await this.tryExec('ALTER TABLE messages ADD COLUMN genre TEXT')
@@ -211,6 +249,11 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       CREATE INDEX IF NOT EXISTS idx_foreign_rejected_adapter_time ON foreign_rejected(adapter_id, received_at DESC);
       CREATE INDEX IF NOT EXISTS idx_bridge_outbound_available_status ON bridge_outbound_queue(status, available_at ASC);
       CREATE INDEX IF NOT EXISTS idx_bridge_outbound_message ON bridge_outbound_queue(message_id);
+      CREATE INDEX IF NOT EXISTS idx_seal0_document_time ON seal_0_log(document_id, query_timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_seal0_actor_time ON seal_0_log(actor_id, query_timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_seal0_status_time ON seal_0_log(result_status, query_timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_alerts_type_time ON censorate_alerts(alert_type, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_checkpoints_scope_time ON audit_checkpoints(scope, created_at DESC);
     `)
   }
 
@@ -374,6 +417,19 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       await this.db
         .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(6, ?, ?, ?)')
         .bind(v6Hash, latestPostV5.migration_hash, new Date().toISOString())
+        .run()
+    }
+
+    const latestPostV6 = await this.db
+      .prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1')
+      .bind()
+      .first<{ version: number; migration_hash: string }>()
+    if (!latestPostV6) return
+    const v7Hash = sha256(`${latestPostV6.migration_hash}:archive-schema-v7-censorate`)
+    if (latestPostV6.version < 7) {
+      await this.db
+        .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(7, ?, ?, ?)')
+        .bind(v7Hash, latestPostV6.migration_hash, new Date().toISOString())
         .run()
     }
   }
@@ -724,7 +780,31 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .prepare(`SELECT COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
       .bind()
       .all<Array<Record<string, unknown>>>()
-    const root = merkleRootForLeaves((rows as { results: Array<Record<string, unknown>> }).results.map((r) => String(r.h)))
+    const leaves = (rows as { results: Array<Record<string, unknown>> }).results.map((r) => String(r.h))
+    if (scope === 'all') {
+      const readRows = await this.db
+        .prepare('SELECT id, query_timestamp, result_hash FROM seal_0_log ORDER BY query_timestamp ASC, id ASC')
+        .bind()
+        .all<Array<Record<string, unknown>>>()
+      const alertRows = await this.db
+        .prepare('SELECT id, created_at FROM censorate_alerts ORDER BY created_at ASC, id ASC')
+        .bind()
+        .all<Array<Record<string, unknown>>>()
+      const checkpointRows = await this.db
+        .prepare('SELECT id, created_at FROM audit_checkpoints ORDER BY created_at ASC, id ASC')
+        .bind()
+        .all<Array<Record<string, unknown>>>()
+      for (const r of (readRows as { results: Array<Record<string, unknown>> }).results) {
+        leaves.push(sha256(`${String(r.query_timestamp)}:${String(r.id)}:${String(r.result_hash)}`))
+      }
+      for (const a of (alertRows as { results: Array<Record<string, unknown>> }).results) {
+        leaves.push(sha256(`${String(a.created_at)}:${String(a.id)}`))
+      }
+      for (const c of (checkpointRows as { results: Array<Record<string, unknown>> }).results) {
+        leaves.push(sha256(`${String(c.created_at)}:${String(c.id)}`))
+      }
+    }
+    const root = merkleRootForLeaves(leaves)
     await this.db
       .prepare(
         `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
@@ -911,6 +991,195 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       )
       .bind(status, lastError ?? null, new Date().toISOString(), id)
       .run()
+  }
+
+  async appendSeal0Receipt(receipt: Seal0Receipt): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO seal_0_log(
+          id, document_id, actor_id, genre, query_timestamp, query_parameters_hash, result_hash, result_status, reason, signature, trace_id, node_id
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        receipt.id,
+        receipt.document_id ?? null,
+        receipt.actor_id,
+        receipt.genre ?? null,
+        receipt.query_timestamp,
+        receipt.query_parameters_hash,
+        receipt.result_hash,
+        receipt.result_status,
+        receipt.reason ?? null,
+        receipt.signature,
+        receipt.trace_id ?? null,
+        receipt.node_id ?? null,
+      )
+      .run()
+  }
+
+  async querySeal0ByDocument(
+    documentId: string,
+    filters: { since?: string; actorId?: string; limit?: number } = {},
+  ): Promise<Seal0Receipt[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT *
+         FROM seal_0_log
+         WHERE document_id = ?
+           AND (? IS NULL OR query_timestamp >= ?)
+           AND (? IS NULL OR actor_id = ?)
+         ORDER BY query_timestamp DESC
+         LIMIT ?`,
+      )
+      .bind(documentId, filters.since ?? null, filters.since ?? null, filters.actorId ?? null, filters.actorId ?? null, filters.limit ?? 100)
+      .all<Array<Record<string, unknown>>>()
+    return (rows as { results: Array<Record<string, unknown>> }).results.map((r) => ({
+      id: String(r.id),
+      document_id: (r.document_id as string | null) ?? null,
+      actor_id: String(r.actor_id),
+      genre: (r.genre as string | null) ?? undefined,
+      query_timestamp: String(r.query_timestamp),
+      query_parameters_hash: String(r.query_parameters_hash),
+      result_hash: String(r.result_hash),
+      result_status: r.result_status as 'allowed' | 'denied',
+      reason: (r.reason as string | null) ?? undefined,
+      signature: String(r.signature),
+      trace_id: (r.trace_id as string | null) ?? undefined,
+      node_id: (r.node_id as string | null) ?? undefined,
+    }))
+  }
+
+  async querySeal0ByGenre(
+    genre: string,
+    filters: { since?: string; actorId?: string; limit?: number } = {},
+  ): Promise<Seal0Receipt[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT *
+         FROM seal_0_log
+         WHERE genre = ?
+           AND (? IS NULL OR query_timestamp >= ?)
+           AND (? IS NULL OR actor_id = ?)
+         ORDER BY query_timestamp DESC
+         LIMIT ?`,
+      )
+      .bind(genre, filters.since ?? null, filters.since ?? null, filters.actorId ?? null, filters.actorId ?? null, filters.limit ?? 100)
+      .all<Array<Record<string, unknown>>>()
+    return (rows as { results: Array<Record<string, unknown>> }).results.map((r) => ({
+      id: String(r.id),
+      document_id: (r.document_id as string | null) ?? null,
+      actor_id: String(r.actor_id),
+      genre: (r.genre as string | null) ?? undefined,
+      query_timestamp: String(r.query_timestamp),
+      query_parameters_hash: String(r.query_parameters_hash),
+      result_hash: String(r.result_hash),
+      result_status: r.result_status as 'allowed' | 'denied',
+      reason: (r.reason as string | null) ?? undefined,
+      signature: String(r.signature),
+      trace_id: (r.trace_id as string | null) ?? undefined,
+      node_id: (r.node_id as string | null) ?? undefined,
+    }))
+  }
+
+  async appendCensorateAlert(alert: CensorateAlertRecord): Promise<void> {
+    const id = alert.id ?? `${alert.alertType}:${Date.now()}`
+    await this.db
+      .prepare(
+        `INSERT INTO censorate_alerts(
+          id, alert_type, severity, actor_id, node_id, evidence_json, created_at, action_taken
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        alert.alertType,
+        alert.severity,
+        alert.actorId ?? null,
+        alert.nodeId ?? null,
+        JSON.stringify(alert.evidence),
+        alert.createdAt,
+        alert.actionTaken ?? null,
+      )
+      .run()
+  }
+
+  async queryCensorateAlerts(
+    window: { since?: string; limit?: number; type?: string } = {},
+  ): Promise<CensorateAlertRecord[]> {
+    const rows = await this.db
+      .prepare(
+        `SELECT *
+         FROM censorate_alerts
+         WHERE (? IS NULL OR created_at >= ?)
+           AND (? IS NULL OR alert_type = ?)
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .bind(window.since ?? null, window.since ?? null, window.type ?? null, window.type ?? null, window.limit ?? 100)
+      .all<Array<Record<string, unknown>>>()
+    return (rows as { results: Array<Record<string, unknown>> }).results.map((r) => ({
+      id: String(r.id),
+      alertType: String(r.alert_type),
+      severity: r.severity as 'info' | 'warning' | 'critical',
+      actorId: (r.actor_id as string | null) ?? undefined,
+      nodeId: (r.node_id as string | null) ?? undefined,
+      evidence: JSON.parse(String(r.evidence_json)) as Record<string, unknown>,
+      createdAt: String(r.created_at),
+      actionTaken: (r.action_taken as string | null) ?? undefined,
+    }))
+  }
+
+  async appendAuditCheckpoint(entry: AuditCheckpointRecord): Promise<void> {
+    const id = entry.id ?? `checkpoint:${entry.scope}:${entry.createdAt}`
+    await this.db
+      .prepare(
+        `INSERT INTO audit_checkpoints(id, scope, merkle_root, seal_count, node_signatures_json, created_at)
+         VALUES(?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        entry.scope,
+        entry.merkleRoot,
+        entry.sealCount,
+        JSON.stringify(entry.nodeSignatures),
+        entry.createdAt,
+      )
+      .run()
+  }
+
+  async exportAuditBundle(input: { start?: string; end?: string; merkleRoot?: string }): Promise<unknown> {
+    const reads = await this.db
+      .prepare(
+        `SELECT *
+         FROM seal_0_log
+         WHERE (? IS NULL OR query_timestamp >= ?)
+           AND (? IS NULL OR query_timestamp <= ?)
+         ORDER BY query_timestamp ASC`,
+      )
+      .bind(input.start ?? null, input.start ?? null, input.end ?? null, input.end ?? null)
+      .all<Array<Record<string, unknown>>>()
+
+    const checkpointQuery = input.merkleRoot
+      ? this.db
+          .prepare('SELECT * FROM audit_checkpoints WHERE merkle_root = ? ORDER BY created_at DESC LIMIT 1')
+          .bind(input.merkleRoot)
+      : this.db.prepare('SELECT * FROM audit_checkpoints ORDER BY created_at DESC LIMIT 1').bind()
+    const checkpoint = await checkpointQuery.first<Record<string, unknown>>()
+    const normalizedCheckpoint = checkpoint
+      ? {
+          id: String(checkpoint.id),
+          scope: String(checkpoint.scope),
+          merkleRoot: String(checkpoint.merkle_root),
+          sealCount: Number(checkpoint.seal_count),
+          nodeSignatures: JSON.parse(String(checkpoint.node_signatures_json)) as string[],
+          createdAt: String(checkpoint.created_at),
+        }
+      : undefined
+
+    return {
+      checkpoint: normalizedCheckpoint,
+      reads: (reads as { results: Array<Record<string, unknown>> }).results,
+      digest: sha256(JSON.stringify(normalizedCheckpoint ?? {})),
+    }
   }
 
   private async indexArchivedMessage(messageId: string, sealedAt: string): Promise<void> {

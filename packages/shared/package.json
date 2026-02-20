@@ -1,7 +1,7 @@
 {
   "name": "@wenyan/shared",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Shared facade and compatibility types for Wenyan",
   "type": "module",
   "main": "./src/index.ts",

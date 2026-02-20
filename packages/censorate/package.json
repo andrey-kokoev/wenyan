@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/seal",
+  "name": "@wenyan/censorate",
   "version": "0.6.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,22 +20,21 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andrey-kokoev/wenyan.git",
-    "directory": "packages/seal"
+    "directory": "packages/censorate"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src",
+    "test": "vitest run src --passWithNoTests",
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
-    "@noble/ed25519": "^2.1.0",
-    "@noble/hashes": "^1.8.0",
-    "@wenyan/actor": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
     "@wenyan/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^25.2.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

@@ -8,6 +8,8 @@ export const EdictLawTypeSchema = z.enum([
   'admission',
   'protocol',
   'regulation',
+  'access_control',
+  'detection_rule',
 ])
 
 export const EdictLawTypeValues = [...EdictLawTypeSchema.options]
@@ -61,6 +63,24 @@ export const RegulationLawContentSchema = z.object({
   rate_limits: z.record(z.string(), z.number().int().positive()).optional(),
 })
 
+export const AccessControlLawContentSchema = z.object({
+  read_permissions: z.record(z.string(), z.array(z.string())).default({}),
+  anonymous_read: z.boolean().default(false),
+  query_hash_only: z.boolean().default(true),
+})
+
+export const DetectionRuleSchema = z.object({
+  type: z.enum(['velocity', 'temporal_anomaly', 'geographic_impossibility', 'coalition']),
+  enabled: z.boolean().default(true),
+  threshold: z.number().positive().optional(),
+  window_seconds: z.number().int().positive().optional(),
+  action: z.enum(['log', 'quarantine', 'circuit_break']).default('log'),
+})
+
+export const DetectionRuleLawContentSchema = z.object({
+  rules: z.array(DetectionRuleSchema).default([]),
+})
+
 export const LawModeSchema = z.enum(['strict'])
 export const LawConflictResolutionSchema = z.enum(['lww', 'manual_schism'])
 
@@ -83,6 +103,9 @@ export type RoutingLawContent = z.infer<typeof RoutingLawContentSchema>
 export type AdmissionLawContent = z.infer<typeof AdmissionLawContentSchema>
 export type ProtocolLawContent = z.infer<typeof ProtocolLawContentSchema>
 export type RegulationLawContent = z.infer<typeof RegulationLawContentSchema>
+export type AccessControlLawContent = z.infer<typeof AccessControlLawContentSchema>
+export type DetectionRule = z.infer<typeof DetectionRuleSchema>
+export type DetectionRuleLawContent = z.infer<typeof DetectionRuleLawContentSchema>
 export type LawMode = z.infer<typeof LawModeSchema>
 export type LawConflictResolution = z.infer<typeof LawConflictResolutionSchema>
 

@@ -84,6 +84,8 @@ export interface BroadcastMessage {
   id: string
   topic: string
   payload: Record<string, unknown>
+  traceparent?: string
+  tracestate?: string
 }
 
 export interface PlumtreeBroadcast {

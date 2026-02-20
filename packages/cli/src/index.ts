@@ -2,6 +2,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import { constitutionalMerkleRoot } from '@wenyan/channel'
 import { createEmptyOffice, applyGenesisFromDir } from '@wenyan/genesis'
 import { parseBootstrapConfigToml } from '@wenyan/core'
@@ -27,6 +28,16 @@ async function status(id: string) {
   console.log(JSON.stringify(json, null, 2))
 }
 
+function actorHeaders() {
+  const actorId = process.env.WENYAN_ACTOR_ID ?? 'local-operator'
+  const actorRole = process.env.WENYAN_ACTOR_ROLE ?? 'genesis_admin'
+  return {
+    'x-wenyan-actor-id': actorId,
+    'x-wenyan-actor-role': actorRole,
+    authorization: `Bearer ${actorId}`,
+  }
+}
+
 async function query(state: string) {
   const res = await fetch(`${baseUrl}/messages?state=${encodeURIComponent(state)}`)
   const json = await res.json()
@@ -37,6 +48,87 @@ async function stream() {
   const res = await fetch(`${baseUrl}/stream`)
   const json = await res.json()
   console.log(JSON.stringify(json, null, 2))
+}
+
+function parseWindow(input: string): string {
+  const now = Date.now()
+  const m = /^([0-9]+)([smhd])$/.exec(input.trim())
+  if (!m) return new Date(now - 60 * 60 * 1000).toISOString()
+  const value = Number(m[1])
+  const unit = m[2]
+  const ms =
+    unit === 's' ? value * 1000 :
+    unit === 'm' ? value * 60 * 1000 :
+    unit === 'h' ? value * 60 * 60 * 1000 :
+    value * 24 * 60 * 60 * 1000
+  return new Date(now - ms).toISOString()
+}
+
+async function auditWhoRead(args: string[]): Promise<void> {
+  const document = argValue('--document', args)
+  const genre = argValue('--genre', args)
+  const since = argValue('--since', args)
+  if (!document && !genre) throw new Error('audit who-read requires --document or --genre')
+  const u = new URL(`${baseUrl}/audit/who-read`)
+  if (document) u.searchParams.set('document', document)
+  if (genre) u.searchParams.set('genre', genre)
+  if (since) u.searchParams.set('since', since)
+  const res = await fetch(u, { headers: actorHeaders() })
+  const json = await res.json()
+  console.log(JSON.stringify(json, null, 2))
+}
+
+async function auditTrace(args: string[]): Promise<void> {
+  const document = argValue('--document', args)
+  if (!document) throw new Error('audit trace requires --document')
+  const res = await fetch(`${baseUrl}/audit/trace/${encodeURIComponent(document)}`, { headers: actorHeaders() })
+  const json = await res.json()
+  console.log(JSON.stringify(json, null, 2))
+}
+
+async function auditAnomaly(args: string[]): Promise<void> {
+  const windowArg = argValue('--window', args) ?? '1h'
+  const type = argValue('--type', args)
+  const u = new URL(`${baseUrl}/audit/anomaly`)
+  u.searchParams.set('since', parseWindow(windowArg))
+  if (type) u.searchParams.set('type', type)
+  const res = await fetch(u, { headers: actorHeaders() })
+  const json = await res.json()
+  console.log(JSON.stringify(json, null, 2))
+}
+
+async function auditExport(args: string[]): Promise<void> {
+  const start = argValue('--start', args)
+  const end = argValue('--end', args)
+  const merkleRoot = argValue('--merkle-root', args)
+  const out = argValue('--out', args)
+  const u = new URL(`${baseUrl}/audit/export`)
+  if (start) u.searchParams.set('start', start)
+  if (end) u.searchParams.set('end', end)
+  if (merkleRoot) u.searchParams.set('merkle_root', merkleRoot)
+  const res = await fetch(u, { headers: actorHeaders() })
+  const json = await res.json()
+  const text = `${JSON.stringify(json, null, 2)}\n`
+  if (out) await writeFile(resolve(out), text, 'utf8')
+  console.log(text.trim())
+}
+
+async function auditVerify(args: string[]): Promise<void> {
+  const file = argValue('--file', args)
+  if (!file) throw new Error('audit verify requires --file')
+  const payload = JSON.parse(await readFile(resolve(file), 'utf8')) as { checkpoint?: unknown; digest?: string }
+  const digest = createHash('sha256').update(JSON.stringify(payload.checkpoint ?? {})).digest('hex')
+  const ok = digest === payload.digest
+  console.log(JSON.stringify({ ok, digest, expected: payload.digest }, null, 2))
+  if (!ok) process.exitCode = 1
+}
+
+async function token(args: string[]): Promise<void> {
+  if (args.includes('--local')) {
+    console.log(process.env.WENYAN_ACTOR_ID ?? 'local-operator')
+    return
+  }
+  throw new Error('token supports only --local')
 }
 
 function argValue(flag: string, args: string[]): string | undefined {
@@ -318,13 +410,43 @@ async function main() {
     return
   }
 
+  if (cmd === 'audit' && args[1] === 'who-read') {
+    await auditWhoRead(args)
+    return
+  }
+
+  if (cmd === 'audit' && args[1] === 'trace') {
+    await auditTrace(args)
+    return
+  }
+
+  if (cmd === 'audit' && args[1] === 'anomaly') {
+    await auditAnomaly(args)
+    return
+  }
+
+  if (cmd === 'audit' && args[1] === 'export') {
+    await auditExport(args)
+    return
+  }
+
+  if (cmd === 'audit' && args[1] === 'verify') {
+    await auditVerify(args)
+    return
+  }
+
+  if (cmd === 'token') {
+    await token(args)
+    return
+  }
+
   if (!cmd && existsSync('wenyan.toml')) {
     console.log('wenyan office detected. use: genesis apply | draft | submit | status | query | stream | sync | mesh status | bridge')
     return
   }
 
   console.error(
-    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | sync --peer <gossip://host:port> | mesh status | bridge run [--config <path>] | bridge status [--config <path>] | bridge sync --adapter <id> [--config <path>] | bridge dry-run --adapter <id> --file <path> [--config <path>] | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream',
+    'Usage: wenyan --init <dir> | genesis apply [--dir <dir>] | --join <peer> | sync --peer <gossip://host:port> | mesh status | bridge run [--config <path>] | bridge status [--config <path>] | bridge sync --adapter <id> [--config <path>] | bridge dry-run --adapter <id> --file <path> [--config <path>] | draft --genre=<g> --template=<t> <file> | submit <file|stdin> | status <id> | query --state <state> | stream | token --local | audit who-read --document <id>|--genre <g> [--since <iso>] | audit trace --document <id> | audit anomaly --window <1h> | audit export [--start <iso>] [--end <iso>] [--merkle-root <hash>] [--out <file>] | audit verify --file <bundle>',
   )
   process.exit(1)
 }

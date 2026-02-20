@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-02-20
+
+### Added
+- New `@wenyan/censorate` package with `WenyanTracer`, `AuditService`, `AnomalyDetector`, and `CheckpointService`.
+- Censorate schemas/types in `@wenyan/core`:
+  `Seal0ReceiptSchema`, `AuditQuerySchema`, `AnomalyRuleSchema`, `AnomalyAlertSchema`, and `CensorateRuntimeConfigSchema`.
+- New edict law types: `access_control` and `detection_rule`.
+- Archive migration v7 (SQLite + Cloudflare) with new tables:
+  `seal_0_log`, `censorate_alerts`, and `audit_checkpoints`.
+- Archive APIs for audit operations:
+  `appendSeal0Receipt`, `querySeal0ByDocument`, `querySeal0ByGenre`,
+  `appendCensorateAlert`, `queryCensorateAlerts`,
+  `appendAuditCheckpoint`, `exportAuditBundle`.
+- Gateway audit endpoints:
+  `GET /api/wenyan/audit/who-read`,
+  `GET /api/wenyan/audit/trace/:id`,
+  `GET /api/wenyan/audit/anomaly`,
+  `GET /api/wenyan/audit/export`,
+  `POST /api/wenyan/audit/checkpoint`.
+- CLI audit commands:
+  `wenyan audit who-read`, `wenyan audit trace`, `wenyan audit anomaly`,
+  `wenyan audit export`, `wenyan audit verify`, and `wenyan token --local`.
+- New e2e suite: `packages/tests/e2e/rituals-0.6.0.e2e.test.ts`.
+
+### Changed
+- Gateway read flow now emits Seal 0 receipts for both successful reads and denied attempts.
+- Merkle root computation (`scope=all`) now includes audit/system leaves from read logs, alerts, and checkpoints.
+- Channel and gossip envelopes now support trace context fields (`traceparent`, `tracestate`).
+
+### Security
+- Optional read authorization via `access_control` law with immutable denial audit logging.
+- Deterministic anomaly detection and quarantine signaling for velocity/temporal/geographic/coalition patterns.
+
+### Deferred
+- `@wenyan/censorate-ui` remains out of scope for 0.6.0.
+- Prometheus dashboard productization remains out of scope for 0.6.0.
+
 ## [0.5.0] - 2026-02-20
 
 ### Added
@@ -96,3 +133,5 @@ All notable changes to this project are documented in this file.
 [0.4.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.4.0
 
 [0.5.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.5.0
+
+[0.6.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.6.0

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { BootstrapConfigSchema, canTransition, EdictSchema, parseBootstrapConfigToml, validateEnvelope } from './index'
+import {
+  BootstrapConfigSchema,
+  CensorateRuntimeConfigSchema,
+  EdictSchema,
+  canTransition,
+  parseBootstrapConfigToml,
+  validateEnvelope,
+} from './index'
 
 describe('core', () => {
   it('validates envelope', () => {
@@ -36,6 +43,25 @@ describe('core', () => {
     })
 
     expect(edict.payload.law_type).toBe('admission')
+  })
+
+  it('accepts extended law types for censorate', () => {
+    const edict = EdictSchema.parse({
+      id: 'e2',
+      genre: 'edict',
+      payload: {
+        law_type: 'access_control',
+        version: '1.0.0',
+        content: { read_permissions: { clerk: ['tax_record'] } },
+        precedence: 0,
+        effective_date: new Date().toISOString(),
+      },
+      actor: { id: 'u1', role: 'admin' },
+      submittedAt: new Date().toISOString(),
+      metadata: {},
+    })
+    expect(edict.payload.law_type).toBe('access_control')
+    expect(CensorateRuntimeConfigSchema.parse({ enabled: true }).enabled).toBe(true)
   })
 
   it('parses bootstrap toml', () => {

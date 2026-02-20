@@ -4,6 +4,8 @@ export interface ChannelEvent {
   messageId: string;
   payload: Record<string, unknown>;
   at: string;
+  traceparent?: string;
+  tracestate?: string;
 }
 
 type Subscriber = (event: ChannelEvent) => void;

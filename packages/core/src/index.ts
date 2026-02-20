@@ -4,6 +4,7 @@ export * from './ti'
 export * from './kinds'
 export * from './law'
 export * from './bootstrap'
+export * from './censorate'
 
 export function validateEnvelope(input: unknown) {
   return MessageEnvelopeSchema.parse(input)

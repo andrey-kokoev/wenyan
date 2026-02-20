@@ -96,7 +96,9 @@ function parseLawPreload(raw: string | undefined): EdictLawType[] | undefined {
       v === 'routing' ||
       v === 'admission' ||
       v === 'protocol' ||
-      v === 'regulation',
+      v === 'regulation' ||
+      v === 'access_control' ||
+      v === 'detection_rule',
     );
   return values.length > 0 ? values : undefined;
 }

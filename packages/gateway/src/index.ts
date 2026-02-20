@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { TiResolver, type ArchiveRepository } from '@wenyan/archive'
 import { constitutionalMerkleRoot, type ChannelEvent } from '@wenyan/channel'
 import {
+  AccessControlLawContentSchema,
   AdmissionLawContentSchema,
   ProtocolLawContentSchema,
   validateEdict,
@@ -19,6 +20,7 @@ import {
   processDocketMessage,
   type LawResolverEvent,
 } from '@wenyan/pipeline'
+import { AnomalyDetector, AuditService, CheckpointService, WenyanTracer } from '@wenyan/censorate'
 
 function isZodLikeError(error: unknown): error is { issues: unknown[] } {
   return Boolean(
@@ -168,6 +170,55 @@ async function resolveRepo(repoFactory: RepoFactory): Promise<ArchiveRepository>
   return repoFactory
 }
 
+interface ReadActor {
+  id: string
+  role: string
+}
+
+function actorFromHeaders(headers: Headers): ReadActor | undefined {
+  const actorId = headers.get('x-wenyan-actor-id') ?? undefined
+  const actorRole = headers.get('x-wenyan-actor-role') ?? 'genesis_admin'
+  if (actorId) return { id: actorId, role: actorRole }
+  const auth = headers.get('authorization')
+  if (!auth?.startsWith('Bearer ')) return undefined
+  const token = auth.slice('Bearer '.length).trim()
+  if (!token) return undefined
+  return { id: token, role: actorRole }
+}
+
+async function checkReadAccess(
+  resolver: LawResolver,
+  actor: ReadActor | undefined,
+  genre: string,
+): Promise<{ allowed: boolean; reason?: string }> {
+  const law = await loadLawContent({
+    resolver,
+    lawType: 'access_control',
+    schema: AccessControlLawContentSchema,
+    strictErrors: {
+      missing: 'law-missing-access-control',
+      ambiguous: 'law-ambiguous-access-control',
+      invalid: 'law-invalid-access-control',
+    },
+  })
+
+  if (!law.ok) {
+    // Maintain pre-0.6 compatibility when no access law exists.
+    if (law.error === 'law-missing-access-control') return { allowed: true }
+    return { allowed: false, reason: law.error }
+  }
+  if (!law.content) {
+    return { allowed: true }
+  }
+  if (!actor) {
+    return law.content.anonymous_read ? { allowed: true } : { allowed: false, reason: 'read-unauthenticated' }
+  }
+
+  const allowed = law.content.read_permissions[actor.role] ?? []
+  if (allowed.includes('*') || allowed.includes(genre)) return { allowed: true }
+  return { allowed: false, reason: 'read-forbidden' }
+}
+
 export function buildGateway(
   repoFactory: RepoFactory,
   channel: ChannelLike,
@@ -178,8 +229,22 @@ export function buildGateway(
   let runtimeRepo: ArchiveRepository | undefined
   let runtimeResolver: LawResolver | undefined = options.lawResolver
   let runtimeTiResolver: TiResolver | undefined
+  let runtimeTracer: WenyanTracer | undefined
+  let runtimeAudit: AuditService | undefined
+  let runtimeCheckpoint: CheckpointService | undefined
+  let runtimeAnomaly: AnomalyDetector | undefined
+  const recentSeal6ByActor = new Map<string, number[]>()
+  const quarantinedActors = new Set<string>()
 
-  async function resolveRuntime(): Promise<{ repo: ArchiveRepository; resolver: LawResolver; tiResolver: TiResolver }> {
+  async function resolveRuntime(): Promise<{
+    repo: ArchiveRepository
+    resolver: LawResolver
+    tiResolver: TiResolver
+    tracer: WenyanTracer
+    audit: AuditService
+    checkpoint: CheckpointService
+    anomaly: AnomalyDetector
+  }> {
     const repo = await resolveRepo(repoFactory)
     if (!runtimeResolver || runtimeRepo !== repo) {
       runtimeResolver =
@@ -192,16 +257,33 @@ export function buildGateway(
         })
       runtimeRepo = repo
       runtimeTiResolver = new TiResolver(repo, { ttlSeconds: options.lawCacheTtlSeconds ?? 60 })
+      runtimeTracer = new WenyanTracer('@wenyan/gateway')
+      const defaultSecret = 'wenyan-seal0-local-secret'
+      const runtimeSecret =
+        typeof process !== 'undefined' && process?.env?.WENYAN_SEAL0_SECRET
+          ? process.env.WENYAN_SEAL0_SECRET
+          : defaultSecret
+      runtimeAudit = new AuditService(repo, runtimeSecret)
+      runtimeCheckpoint = new CheckpointService(repo)
+      runtimeAnomaly = new AnomalyDetector(repo)
       await runtimeResolver.preload()
     }
-    return { repo, resolver: runtimeResolver, tiResolver: runtimeTiResolver! }
+    return {
+      repo,
+      resolver: runtimeResolver,
+      tiResolver: runtimeTiResolver!,
+      tracer: runtimeTracer!,
+      audit: runtimeAudit!,
+      checkpoint: runtimeCheckpoint!,
+      anomaly: runtimeAnomaly!,
+    }
   }
 
   app.post('/messages', async (c) => {
     try {
       const nowIso = new Date().toISOString()
       const idempotencyKey = c.req.header('x-idempotency-key')
-      const { repo, resolver, tiResolver } = await resolveRuntime()
+      const { repo, resolver, tiResolver, tracer, anomaly } = await resolveRuntime()
       if (idempotencyKey) {
         const existing = await repo.getIdempotency(idempotencyKey, nowIso)
         if (existing) {
@@ -210,7 +292,74 @@ export function buildGateway(
       }
 
       const body = await c.req.json()
-      const message = await tongzhengSi(tiResolver, resolver, body)
+      const message = await tracer.withSpan(
+        'wenyan.gateway.submit',
+        { 'wenyan.message_id': String((body as { id?: string })?.id ?? ''), 'wenyan.seal_type': 0 },
+        async () => tongzhengSi(tiResolver, resolver, body),
+      )
+
+      if (quarantinedActors.has(message.actor.id)) {
+        return c.json({ error: 'actor-quarantined' }, 403)
+      }
+
+      const claimedTimestamp = (message.metadata as Record<string, unknown>).claimed_timestamp
+      if (typeof claimedTimestamp === 'string') {
+        const driftMs = Math.abs(new Date(claimedTimestamp).getTime() - Date.now())
+        const temporal = await anomaly.detectTemporal(
+          { nodeId: options.nodeId ?? 'local-node', claimedTimestampIso: claimedTimestamp, observedTimestampIso: new Date().toISOString() },
+          5000,
+        )
+        if (temporal && driftMs > 5000) {
+          return c.json({ error: 'temporal_anomaly' }, 422)
+        }
+      }
+
+      const geo = (message.metadata as Record<string, unknown>).geography
+      if (geo && typeof geo === 'object' && !Array.isArray(geo)) {
+        const typed = geo as { actor_id?: unknown; from?: unknown; to?: unknown; distance_km?: unknown; delta_seconds?: unknown }
+        if (
+          typeof typed.actor_id === 'string' &&
+          typeof typed.from === 'string' &&
+          typeof typed.to === 'string' &&
+          typeof typed.distance_km === 'number' &&
+          typeof typed.delta_seconds === 'number'
+        ) {
+          const geographic = await anomaly.detectGeographic({
+            actorId: typed.actor_id,
+            from: typed.from,
+            to: typed.to,
+            distanceKm: typed.distance_km,
+            deltaSeconds: typed.delta_seconds,
+          })
+          if (geographic) {
+            quarantinedActors.add(typed.actor_id)
+            return c.json({ error: 'geographic_impossibility' }, 422)
+          }
+        }
+      }
+
+      const coalition = (message.metadata as Record<string, unknown>).coalition
+      if (coalition && typeof coalition === 'object' && !Array.isArray(coalition)) {
+        const typed = coalition as {
+          genre?: unknown
+          offices?: unknown
+          observed_probability?: unknown
+          baseline_probability?: unknown
+        }
+        if (
+          typeof typed.genre === 'string' &&
+          Array.isArray(typed.offices) &&
+          typeof typed.observed_probability === 'number' &&
+          typeof typed.baseline_probability === 'number'
+        ) {
+          await anomaly.detectCoalition({
+            genre: typed.genre,
+            offices: typed.offices.map((x) => String(x)),
+            observedProbability: typed.observed_probability,
+            baselineProbability: typed.baseline_probability,
+          })
+        }
+      }
 
       await repo.appendMessage(message)
       await repo.enqueueDocket(message.id)
@@ -230,6 +379,20 @@ export function buildGateway(
         })
         if (result.finalState === 'rejected' && result.reason === 'invalid-constitutional-reference') {
           return c.json({ error: 'Invalid Constitutional Reference', reason: result.reason }, 422)
+        }
+        if (result.finalState === 'archived' && message.genre === 'ti_definition') {
+          const nowMs = Date.now()
+          const actorId = message.actor.id
+          const samples = (recentSeal6ByActor.get(actorId) ?? []).filter((ts) => nowMs - ts < 60_000)
+          samples.push(nowMs)
+          recentSeal6ByActor.set(actorId, samples)
+          const velocity = await anomaly.detectVelocity(
+            samples.map((ts) => ({ actorId, timestampIso: new Date(ts).toISOString() })),
+            10,
+          )
+          if (velocity?.action_taken === 'quarantine') {
+            quarantinedActors.add(actorId)
+          }
         }
         if (message.genre === 'ti_definition' && result.finalState === 'archived') {
           const payload = message.payload as Record<string, unknown>
@@ -341,27 +504,87 @@ export function buildGateway(
     const runtimePromise = resolveRuntime()
     return (async () => {
       const id = c.req.param('id')
-      const { repo } = await runtimePromise
+      const { repo, resolver, audit, tracer } = await runtimePromise
       const message = await repo.getMessage(id)
       if (!message) {
         return c.json({ error: 'not-found' }, 404)
       }
-      return c.json({
+      const actor = actorFromHeaders(c.req.raw.headers)
+      const access = await checkReadAccess(resolver, actor, message.genre)
+      if (!access.allowed) {
+        await audit.createReadReceipt({
+          documentId: id,
+          actorId: actor?.id ?? 'anonymous',
+          genre: message.genre,
+          queryParameters: { id },
+          result: { denied: true },
+          resultStatus: 'denied',
+          reason: access.reason ?? 'read-forbidden',
+          traceId: tracer.currentTrace()?.traceId,
+          nodeId: options.nodeId,
+        })
+        return c.json({ error: 'forbidden', reason: access.reason ?? 'read-forbidden' }, 403)
+      }
+      const payload = {
         message,
         state: (await repo.snapshotState(id)) ?? 'pending',
         transitions: await repo.getTransitions(id),
         seals: await repo.getSeals(id),
         approvals: await repo.getOfficeApprovals(id),
+      }
+      await audit.createReadReceipt({
+        documentId: id,
+        actorId: actor?.id ?? 'anonymous',
+        genre: message.genre,
+        queryParameters: { id },
+        result: payload,
+        resultStatus: 'allowed',
+        traceId: tracer.currentTrace()?.traceId,
+        nodeId: options.nodeId,
+      })
+      return c.json({
+        ...payload,
       })
     })()
   })
 
   app.get('/messages', (c) => {
-    const state = c.req.query('state')
-    if (!state) {
-      return c.json({ error: 'state-query-required' }, 400)
-    }
-    return c.json({ state, items: [] })
+    const runtimePromise = resolveRuntime()
+    return (async () => {
+      const state = c.req.query('state')
+      const genre = c.req.query('genre')
+      const actor = actorFromHeaders(c.req.raw.headers)
+      const { repo, resolver, audit, tracer } = await runtimePromise
+      if (!state) {
+        return c.json({ error: 'state-query-required' }, 400)
+      }
+      if (genre) {
+        const access = await checkReadAccess(resolver, actor, genre)
+        if (!access.allowed) {
+          await audit.createReadReceipt({
+            actorId: actor?.id ?? 'anonymous',
+            genre,
+            queryParameters: { state, genre },
+            result: { denied: true },
+            resultStatus: 'denied',
+            reason: access.reason ?? 'read-forbidden',
+            traceId: tracer.currentTrace()?.traceId,
+            nodeId: options.nodeId,
+          })
+          return c.json({ error: 'forbidden', reason: access.reason ?? 'read-forbidden' }, 403)
+        }
+      }
+      await audit.createReadReceipt({
+        actorId: actor?.id ?? 'anonymous',
+        genre: genre ?? undefined,
+        queryParameters: { state, genre },
+        result: { state, items: [] },
+        resultStatus: 'allowed',
+        traceId: tracer.currentTrace()?.traceId,
+        nodeId: options.nodeId,
+      })
+      return c.json({ state, items: [] })
+    })()
   })
 
   app.get('/stream', (c) => {
@@ -417,6 +640,65 @@ export function buildGateway(
     }
     const result = await options.onMeshSync(body.peer, fromCursor, limit)
     return c.json(result, result.ok ? 200 : 409)
+  })
+
+  app.get('/audit/who-read', async (c) => {
+    const { repo } = await resolveRuntime()
+    const documentId = c.req.query('document')
+    const genre = c.req.query('genre')
+    const since = c.req.query('since') ?? undefined
+    const actorId = c.req.query('actor') ?? undefined
+    const limit = Number(c.req.query('limit') ?? '100')
+    if (!documentId && !genre) return c.json({ error: 'document-or-genre-required' }, 400)
+    const items = documentId
+      ? await repo.querySeal0ByDocument(documentId, { since, actorId, limit })
+      : await repo.querySeal0ByGenre(genre!, { since, actorId, limit })
+    return c.json({ items }, 200)
+  })
+
+  app.get('/audit/anomaly', async (c) => {
+    const { repo } = await resolveRuntime()
+    const since = c.req.query('since') ?? undefined
+    const type = c.req.query('type') ?? undefined
+    const limit = Number(c.req.query('limit') ?? '100')
+    const items = await repo.queryCensorateAlerts({ since, type, limit })
+    return c.json({ items }, 200)
+  })
+
+  app.get('/audit/trace/:id', async (c) => {
+    const { repo } = await resolveRuntime()
+    const id = c.req.param('id')
+    const message = await repo.getMessage(id)
+    if (!message) return c.json({ error: 'not-found' }, 404)
+    const transitions = await repo.getTransitions(id)
+    const seals = await repo.getSeals(id)
+    return c.json({
+      messageId: id,
+      spans: [
+        { name: 'wenyan.pipeline.caoni', count: 1 },
+        { name: 'wenyan.pipeline.shenfu', count: 1 },
+        { name: 'wenyan.pipeline.pizhun', count: 1 },
+        { name: 'wenyan.archive.commit', count: transitions.length + seals.length },
+      ],
+      transitions,
+      seals,
+    })
+  })
+
+  app.get('/audit/export', async (c) => {
+    const { checkpoint } = await resolveRuntime()
+    const start = c.req.query('start') ?? undefined
+    const end = c.req.query('end') ?? undefined
+    const merkleRoot = c.req.query('merkle_root') ?? undefined
+    const bundle = await checkpoint.exportBundle({ start, end, merkleRoot })
+    return c.json(bundle, 200)
+  })
+
+  app.post('/audit/checkpoint', async (c) => {
+    const { checkpoint } = await resolveRuntime()
+    const body = (await c.req.json().catch(() => ({}))) as { scope?: 'all' | 'constitutional' | 'legislative'; signatures?: string[]; sealCount?: number }
+    const created = await checkpoint.createCheckpoint(body.scope ?? 'all', body.signatures ?? [], body.sealCount ?? 0)
+    return c.json(created, 201)
   })
 
   return app

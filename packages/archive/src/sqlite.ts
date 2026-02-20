@@ -4,6 +4,7 @@ import {
   canTransition,
   EdictLawTypeValues,
   type EdictLawType,
+  type Seal0Receipt,
   type MessageEnvelope,
   type MessageState,
   type ResolvedLaw,
@@ -19,6 +20,8 @@ import type {
   ForeignSyncStateRecord,
   GossipLogEntry,
   MerkleProof,
+  CensorateAlertRecord,
+  AuditCheckpointRecord,
   TiDefinitionRecord,
 } from './index'
 import { merkleRootForLeaves } from './merkle-dag'
@@ -194,6 +197,41 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         status TEXT NOT NULL DEFAULT 'queued',
         FOREIGN KEY(message_id) REFERENCES messages(id)
       );
+
+      CREATE TABLE IF NOT EXISTS seal_0_log (
+        id TEXT PRIMARY KEY,
+        document_id TEXT,
+        actor_id TEXT NOT NULL,
+        genre TEXT,
+        query_timestamp TEXT NOT NULL,
+        query_parameters_hash TEXT NOT NULL,
+        result_hash TEXT NOT NULL,
+        result_status TEXT NOT NULL,
+        reason TEXT,
+        signature TEXT NOT NULL,
+        trace_id TEXT,
+        node_id TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS censorate_alerts (
+        id TEXT PRIMARY KEY,
+        alert_type TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        actor_id TEXT,
+        node_id TEXT,
+        evidence_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        action_taken TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS audit_checkpoints (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        merkle_root TEXT NOT NULL,
+        seal_count INTEGER NOT NULL,
+        node_signatures_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
     `)
 
     const cols = this.db.prepare(`PRAGMA table_info(messages)`).all() as Array<{ name: string }>
@@ -219,6 +257,11 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       CREATE INDEX IF NOT EXISTS idx_foreign_rejected_adapter_time ON foreign_rejected(adapter_id, received_at DESC);
       CREATE INDEX IF NOT EXISTS idx_bridge_outbound_available_status ON bridge_outbound_queue(status, available_at ASC);
       CREATE INDEX IF NOT EXISTS idx_bridge_outbound_message ON bridge_outbound_queue(message_id);
+      CREATE INDEX IF NOT EXISTS idx_seal0_document_time ON seal_0_log(document_id, query_timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_seal0_actor_time ON seal_0_log(actor_id, query_timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_seal0_status_time ON seal_0_log(result_status, query_timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_alerts_type_time ON censorate_alerts(alert_type, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_checkpoints_scope_time ON audit_checkpoints(scope, created_at DESC);
     `)
   }
 
@@ -372,6 +415,17 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       this.db
         .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(6, ?, ?, ?)')
         .run(v6Hash, latestPostV5.migration_hash, new Date().toISOString())
+    }
+
+    const latestPostV6 = this.db.prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1').get() as
+      | { version: number; migration_hash: string }
+      | undefined
+    if (!latestPostV6) return
+    const v7Hash = sha256(`${latestPostV6.migration_hash}:archive-schema-v7-censorate`)
+    if (latestPostV6.version < 7) {
+      this.db
+        .prepare('INSERT INTO archive_migrations(version, migration_hash, prev_hash, applied_at) VALUES(7, ?, ?, ?)')
+        .run(v7Hash, latestPostV6.migration_hash, new Date().toISOString())
     }
   }
 
@@ -739,7 +793,22 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     const rows = this.db
       .prepare(`SELECT COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
       .all() as Array<{ h: string }>
-    const root = merkleRootForLeaves(rows.map((r) => r.h))
+    const leaves = rows.map((r) => r.h)
+    if (scope === 'all') {
+      const reads = this.db
+        .prepare('SELECT id, query_timestamp, result_hash FROM seal_0_log ORDER BY query_timestamp ASC, id ASC')
+        .all() as Array<{ id: string; query_timestamp: string; result_hash: string }>
+      const alerts = this.db
+        .prepare('SELECT id, created_at FROM censorate_alerts ORDER BY created_at ASC, id ASC')
+        .all() as Array<{ id: string; created_at: string }>
+      const checkpoints = this.db
+        .prepare('SELECT id, created_at FROM audit_checkpoints ORDER BY created_at ASC, id ASC')
+        .all() as Array<{ id: string; created_at: string }>
+      for (const r of reads) leaves.push(sha256(`${r.query_timestamp}:${r.id}:${r.result_hash}`))
+      for (const a of alerts) leaves.push(sha256(`${a.created_at}:${a.id}`))
+      for (const c of checkpoints) leaves.push(sha256(`${c.created_at}:${c.id}`))
+    }
+    const root = merkleRootForLeaves(leaves)
     this.db
       .prepare(
         `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
@@ -938,6 +1007,196 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          WHERE id = ?`,
       )
       .run(status, lastError ?? null, new Date().toISOString(), id)
+  }
+
+  appendSeal0Receipt(receipt: Seal0Receipt): void {
+    this.db
+      .prepare(
+        `INSERT INTO seal_0_log(
+          id, document_id, actor_id, genre, query_timestamp, query_parameters_hash, result_hash, result_status, reason, signature, trace_id, node_id
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        receipt.id,
+        receipt.document_id,
+        receipt.actor_id,
+        receipt.genre ?? null,
+        receipt.query_timestamp,
+        receipt.query_parameters_hash,
+        receipt.result_hash,
+        receipt.result_status,
+        receipt.reason ?? null,
+        receipt.signature,
+        receipt.trace_id ?? null,
+        receipt.node_id ?? null,
+      )
+  }
+
+  querySeal0ByDocument(
+    documentId: string,
+    filters: { since?: string; actorId?: string; limit?: number } = {},
+  ): Seal0Receipt[] {
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM seal_0_log
+         WHERE document_id = ?
+           AND (? IS NULL OR query_timestamp >= ?)
+           AND (? IS NULL OR actor_id = ?)
+         ORDER BY query_timestamp DESC
+         LIMIT ?`,
+      )
+      .all(documentId, filters.since ?? null, filters.since ?? null, filters.actorId ?? null, filters.actorId ?? null, filters.limit ?? 100) as Array<
+      Record<string, unknown>
+    >
+    return rows.map((r) => ({
+      id: String(r.id),
+      document_id: (r.document_id as string | null) ?? null,
+      actor_id: String(r.actor_id),
+      genre: (r.genre as string | null) ?? undefined,
+      query_timestamp: String(r.query_timestamp),
+      query_parameters_hash: String(r.query_parameters_hash),
+      result_hash: String(r.result_hash),
+      result_status: r.result_status as 'allowed' | 'denied',
+      reason: (r.reason as string | null) ?? undefined,
+      signature: String(r.signature),
+      trace_id: (r.trace_id as string | null) ?? undefined,
+      node_id: (r.node_id as string | null) ?? undefined,
+    }))
+  }
+
+  querySeal0ByGenre(
+    genre: string,
+    filters: { since?: string; actorId?: string; limit?: number } = {},
+  ): Seal0Receipt[] {
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM seal_0_log
+         WHERE genre = ?
+           AND (? IS NULL OR query_timestamp >= ?)
+           AND (? IS NULL OR actor_id = ?)
+         ORDER BY query_timestamp DESC
+         LIMIT ?`,
+      )
+      .all(genre, filters.since ?? null, filters.since ?? null, filters.actorId ?? null, filters.actorId ?? null, filters.limit ?? 100) as Array<
+      Record<string, unknown>
+    >
+    return rows.map((r) => ({
+      id: String(r.id),
+      document_id: (r.document_id as string | null) ?? null,
+      actor_id: String(r.actor_id),
+      genre: (r.genre as string | null) ?? undefined,
+      query_timestamp: String(r.query_timestamp),
+      query_parameters_hash: String(r.query_parameters_hash),
+      result_hash: String(r.result_hash),
+      result_status: r.result_status as 'allowed' | 'denied',
+      reason: (r.reason as string | null) ?? undefined,
+      signature: String(r.signature),
+      trace_id: (r.trace_id as string | null) ?? undefined,
+      node_id: (r.node_id as string | null) ?? undefined,
+    }))
+  }
+
+  appendCensorateAlert(alert: CensorateAlertRecord): void {
+    const id = alert.id ?? `${alert.alertType}:${Date.now()}`
+    this.db
+      .prepare(
+        `INSERT INTO censorate_alerts(
+          id, alert_type, severity, actor_id, node_id, evidence_json, created_at, action_taken
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        alert.alertType,
+        alert.severity,
+        alert.actorId ?? null,
+        alert.nodeId ?? null,
+        JSON.stringify(alert.evidence),
+        alert.createdAt,
+        alert.actionTaken ?? null,
+      )
+  }
+
+  queryCensorateAlerts(
+    window: { since?: string; limit?: number; type?: string } = {},
+  ): CensorateAlertRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM censorate_alerts
+         WHERE (? IS NULL OR created_at >= ?)
+           AND (? IS NULL OR alert_type = ?)
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(window.since ?? null, window.since ?? null, window.type ?? null, window.type ?? null, window.limit ?? 100) as Array<
+      Record<string, unknown>
+    >
+    return rows.map((r) => ({
+      id: String(r.id),
+      alertType: String(r.alert_type),
+      severity: r.severity as 'info' | 'warning' | 'critical',
+      actorId: (r.actor_id as string | null) ?? undefined,
+      nodeId: (r.node_id as string | null) ?? undefined,
+      evidence: JSON.parse(String(r.evidence_json)) as Record<string, unknown>,
+      createdAt: String(r.created_at),
+      actionTaken: (r.action_taken as string | null) ?? undefined,
+    }))
+  }
+
+  appendAuditCheckpoint(entry: AuditCheckpointRecord): void {
+    const id = entry.id ?? `checkpoint:${entry.scope}:${entry.createdAt}`
+    this.db
+      .prepare(
+        `INSERT INTO audit_checkpoints(id, scope, merkle_root, seal_count, node_signatures_json, created_at)
+         VALUES(?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        entry.scope,
+        entry.merkleRoot,
+        entry.sealCount,
+        JSON.stringify(entry.nodeSignatures),
+        entry.createdAt,
+      )
+  }
+
+  exportAuditBundle(input: { start?: string; end?: string; merkleRoot?: string }): unknown {
+    const sealRows = this.db
+      .prepare(
+        `SELECT *
+         FROM seal_0_log
+         WHERE (? IS NULL OR query_timestamp >= ?)
+           AND (? IS NULL OR query_timestamp <= ?)
+         ORDER BY query_timestamp ASC`,
+      )
+      .all(input.start ?? null, input.start ?? null, input.end ?? null, input.end ?? null) as Array<Record<string, unknown>>
+
+    const checkpoint = input.merkleRoot
+      ? (this.db
+          .prepare('SELECT * FROM audit_checkpoints WHERE merkle_root = ? ORDER BY created_at DESC LIMIT 1')
+          .get(input.merkleRoot) as Record<string, unknown> | undefined)
+      : (this.db
+          .prepare('SELECT * FROM audit_checkpoints ORDER BY created_at DESC LIMIT 1')
+          .get() as Record<string, unknown> | undefined)
+
+    const normalizedCheckpoint = checkpoint
+      ? {
+          id: String(checkpoint.id),
+          scope: String(checkpoint.scope),
+          merkleRoot: String(checkpoint.merkle_root),
+          sealCount: Number(checkpoint.seal_count),
+          nodeSignatures: JSON.parse(String(checkpoint.node_signatures_json)) as string[],
+          createdAt: String(checkpoint.created_at),
+        }
+      : undefined
+
+    return {
+      checkpoint: normalizedCheckpoint,
+      reads: sealRows,
+      digest: sha256(JSON.stringify(normalizedCheckpoint ?? {})),
+    }
   }
 
   private indexArchivedMessage(messageId: string, sealedAt: string): void {
