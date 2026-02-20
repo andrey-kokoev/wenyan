@@ -25,15 +25,23 @@ export function tongzhengSi (input: unknown) {
   return validateEnvelope(input)
 }
 
-export function buildGateway(repo: ArchiveRepository, channel: ReliableChannel, sealContext: SealContext = DEV_SEAL_CONTEXT) {
+type RepoFactory = ArchiveRepository | (() => ArchiveRepository | Promise<ArchiveRepository>)
+
+async function resolveRepo(repoFactory: RepoFactory): Promise<ArchiveRepository> {
+  if (typeof repoFactory === 'function') return repoFactory()
+  return repoFactory
+}
+
+export function buildGateway(repoFactory: RepoFactory, channel: ReliableChannel, sealContext: SealContext = DEV_SEAL_CONTEXT) {
   const app = new Hono()
 
   app.post('/messages', async (c) => {
     try {
       const nowIso = new Date().toISOString()
       const idempotencyKey = c.req.header('x-idempotency-key')
+      const repo = await resolveRepo(repoFactory)
       if (idempotencyKey) {
-        const existing = repo.getIdempotency(idempotencyKey, nowIso)
+        const existing = await repo.getIdempotency(idempotencyKey, nowIso)
         if (existing) {
           return c.json(JSON.parse(existing.responseJson), 200)
         }
@@ -42,13 +50,13 @@ export function buildGateway(repo: ArchiveRepository, channel: ReliableChannel, 
       const body = await c.req.json()
       const message = tongzhengSi(body)
 
-      repo.appendMessage(message)
-      repo.enqueueDocket(message.id)
+      await repo.appendMessage(message)
+      await repo.enqueueDocket(message.id)
 
-      const item = repo.dequeueDocket(new Date().toISOString())
+      const item = await repo.dequeueDocket(new Date().toISOString())
       if (item) {
         const result = await processDocketMessage(repo, item.messageId, sealContext)
-        const transitions = repo.getTransitions(item.messageId)
+        const transitions = await repo.getTransitions(item.messageId)
         const last = transitions[transitions.length - 1]
         channel.publish({
           id: `${item.messageId}:${last.sequenceNo}`,
@@ -62,7 +70,7 @@ export function buildGateway(repo: ArchiveRepository, channel: ReliableChannel, 
       const response = { id: message.id, acceptedAt: nowIso }
       if (idempotencyKey) {
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-        repo.putIdempotency(idempotencyKey, JSON.stringify(response), expiresAt)
+        await repo.putIdempotency(idempotencyKey, JSON.stringify(response), expiresAt)
       }
 
       c.header('location', `/api/wenyan/messages/${message.id}`)
@@ -79,8 +87,9 @@ export function buildGateway(repo: ArchiveRepository, channel: ReliableChannel, 
   })
 
   app.post('/messages/:id/approvals', async (c) => {
+    const repo = await resolveRepo(repoFactory)
     const id = c.req.param('id')
-    const message = repo.getMessage(id)
+    const message = await repo.getMessage(id)
     if (!message) return c.json({ error: 'not-found' }, 404)
 
     const body = (await c.req.json()) as { office?: string }
@@ -92,8 +101,8 @@ export function buildGateway(repo: ArchiveRepository, channel: ReliableChannel, 
       return c.json({ error: 'office-not-required' }, 400)
     }
 
-    repo.addOfficeApproval(id, office)
-    const approvals = repo.getOfficeApprovals(id)
+    await repo.addOfficeApproval(id, office)
+    const approvals = await repo.getOfficeApprovals(id)
 
     if (approvals.length < required.length) {
       return c.json({ state: 'pending', approvals, required }, 200)
@@ -111,18 +120,22 @@ export function buildGateway(repo: ArchiveRepository, channel: ReliableChannel, 
   })
 
   app.get('/messages/:id', (c) => {
+    const repoPromise = resolveRepo(repoFactory)
+    return (async () => {
     const id = c.req.param('id')
-    const message = repo.getMessage(id)
+    const repo = await repoPromise
+    const message = await repo.getMessage(id)
     if (!message) {
       return c.json({ error: 'not-found' }, 404)
     }
     return c.json({
       message,
-      state: repo.snapshotState(id) ?? 'pending',
-      transitions: repo.getTransitions(id),
-      seals: repo.getSeals(id),
-      approvals: repo.getOfficeApprovals(id),
+      state: (await repo.snapshotState(id)) ?? 'pending',
+      transitions: await repo.getTransitions(id),
+      seals: await repo.getSeals(id),
+      approvals: await repo.getOfficeApprovals(id),
     })
+    })()
   })
 
   app.get('/messages', (c) => {

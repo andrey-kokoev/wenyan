@@ -12,7 +12,7 @@ import aiProvidersListHandler from './routes/ai/providers/index.get';
 import adminAiRoutes from './routes/admin/ai';
 import adminConfigRoutes from './routes/admin/config';
 import { InMemoryArchiveRepository } from '@wenyan/archive';
-import { SqliteArchiveRepository } from '@wenyan/archive/sqlite';
+import { createStorageAdapter, type StorageAdapter } from '@wenyan/archive/adapter';
 import { ReliableChannel } from '@wenyan/channel';
 import { buildGateway } from '@wenyan/gateway';
 import { DEV_SEAL_CONTEXT } from '@wenyan/seal';
@@ -71,24 +71,40 @@ import themeUpdateHandler from './routes/themes/[id]/index.patch';
  * Create and configure the Hono application
  */
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-const wenyanArchive = (() => {
-  try {
-    const repo = new SqliteArchiveRepository("./wenyan.dang'an", { retentionDays: 3650 });
-    repo.initialize();
-    repo.migrate();
-    return repo;
-  } catch {
-    // Cloudflare local worker runtime currently cannot construct node:sqlite.
-    return new InMemoryArchiveRepository();
+function resolveStorageAdapter(kind: string | undefined, env: Bindings): StorageAdapter {
+  if (kind === 'cloudflare') {
+    return createStorageAdapter({ kind: 'cloudflare', d1: env.DB as unknown as Parameters<typeof createStorageAdapter>[0]['d1'], retentionDays: 3650 });
   }
-})();
+  if (kind === 'memory') {
+    return createStorageAdapter({ kind: 'memory' });
+  }
+  try {
+    return createStorageAdapter({ kind: 'sqlite', sqlitePath: "./wenyan.dang'an", retentionDays: 3650 });
+  } catch {
+    return createStorageAdapter({ kind: 'memory' });
+  }
+}
+
+const storageKind = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.WENYAN_STORAGE_ADAPTER;
+let wenyanArchive: Awaited<ReturnType<StorageAdapter['createRepository']>> = new InMemoryArchiveRepository();
+let wenyanArchiveInit: Promise<void> | undefined
 const wenyanChannel = new ReliableChannel();
-const wenyanGateway = buildGateway(wenyanArchive, wenyanChannel, DEV_SEAL_CONTEXT);
+const wenyanGateway = buildGateway(async () => wenyanArchive, wenyanChannel, DEV_SEAL_CONTEXT);
 
 /**
  * Apply common middleware to all routes
  */
 app.use('*', ...commonMiddleware);
+app.use('*', async (c, next) => {
+  if (!wenyanArchiveInit) {
+    wenyanArchiveInit = (async () => {
+      const adapter = resolveStorageAdapter(storageKind, c.env);
+      wenyanArchive = await adapter.createRepository();
+    })()
+  }
+  await wenyanArchiveInit
+  return next();
+});
 
 /**
  * Auth routes (must be before auth middleware to allow unauthenticated access)
@@ -229,40 +245,13 @@ app.route('/api/themes', themesListHandler);
 app.route('/api/themes', themeGetHandler);
 app.patch('/api/themes/:id', themeUpdateHandler);
 
-/**
- * Serve static assets (SPA)
- * When ASSETS binding is available, serve the frontend
- */
 app.get('*', async (c) => {
-  // Try to serve from ASSETS binding if available
-  if (c.env.ASSETS) {
-    try {
-      const assetResponse = await c.env.ASSETS.fetch(c.req.raw);
-      if (assetResponse.status !== 404) {
-        return assetResponse;
-      }
-    } catch {
-      // Fall through to serve index.html for SPA routing
-    }
-    
-    // For SPA routing, serve index.html for non-API routes
-    try {
-      const indexResponse = await c.env.ASSETS.fetch(new URL('/index.html', c.req.url));
-      if (indexResponse.ok) {
-        return indexResponse;
-      }
-    } catch {
-      // Fall through to API response
-    }
-  }
-  
-  // Fallback API response if no assets or 404
   return c.json({
     message: 'Wenyan Server API',
     version: '0.1.0',
     environment: c.env.ENVIRONMENT,
     timestamp: new Date().toISOString(),
-    note: 'Frontend not built or ASSETS binding not configured',
+    note: 'UI removed. API-only runtime.',
   });
 });
 

@@ -37,9 +37,6 @@ export interface Bindings {
 
   // Frontend URL
   FRONTEND_URL?: string // Frontend URL for redirects
-  
-  // Static assets binding (configured in wrangler.toml [assets])
-  ASSETS?: Fetcher
 }
 
 /**

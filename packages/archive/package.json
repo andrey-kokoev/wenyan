@@ -12,6 +12,14 @@
     "./sqlite": {
       "types": "./src/sqlite.ts",
       "import": "./src/sqlite.ts"
+    },
+    "./cloudflare": {
+      "types": "./src/cloudflare.ts",
+      "import": "./src/cloudflare.ts"
+    },
+    "./adapter": {
+      "types": "./src/adapter.ts",
+      "import": "./src/adapter.ts"
     }
   },
   "scripts": {

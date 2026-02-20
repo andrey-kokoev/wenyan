@@ -15,20 +15,20 @@ export interface IdempotencyRecord {
 }
 
 export interface ArchiveRepository {
-  appendMessage(message: MessageEnvelope): void
-  appendTransition(transition: Transition): void
-  appendSeal(seal: SealRecord): void
-  enqueueDocket(messageId: string): void
-  dequeueDocket(nowIso: string): DocketItem | undefined
-  snapshotState(messageId: string): MessageState | undefined
-  getMessage(messageId: string): MessageEnvelope | undefined
-  getTransitions(messageId: string): Transition[]
-  getSeals(messageId: string): SealRecord[]
-  getIdempotency(key: string, nowIso: string): IdempotencyRecord | undefined
-  putIdempotency(key: string, responseJson: string, expiresAt: string): void
-  addOfficeApproval(messageId: string, office: string): number
-  getOfficeApprovals(messageId: string): string[]
-  stateAt(messageId: string, timestampIso: string): MessageState | undefined
+  appendMessage(message: MessageEnvelope): void | Promise<void>
+  appendTransition(transition: Transition): void | Promise<void>
+  appendSeal(seal: SealRecord): void | Promise<void>
+  enqueueDocket(messageId: string): void | Promise<void>
+  dequeueDocket(nowIso: string): DocketItem | undefined | Promise<DocketItem | undefined>
+  snapshotState(messageId: string): MessageState | undefined | Promise<MessageState | undefined>
+  getMessage(messageId: string): MessageEnvelope | undefined | Promise<MessageEnvelope | undefined>
+  getTransitions(messageId: string): Transition[] | Promise<Transition[]>
+  getSeals(messageId: string): SealRecord[] | Promise<SealRecord[]>
+  getIdempotency(key: string, nowIso: string): IdempotencyRecord | undefined | Promise<IdempotencyRecord | undefined>
+  putIdempotency(key: string, responseJson: string, expiresAt: string): void | Promise<void>
+  addOfficeApproval(messageId: string, office: string): number | Promise<number>
+  getOfficeApprovals(messageId: string): string[] | Promise<string[]>
+  stateAt(messageId: string, timestampIso: string): MessageState | undefined | Promise<MessageState | undefined>
 }
 
 export class InMemoryArchiveRepository implements ArchiveRepository {

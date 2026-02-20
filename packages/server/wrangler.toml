@@ -3,11 +3,6 @@ main = "src/index.ts"
 compatibility_date = "2026-01-31"
 compatibility_flags = ["nodejs_compat"]
 
-# Serve static frontend assets from the Worker
-[assets]
-binding = "ASSETS"
-directory = "./public"
-
 # Default vars for local development
 [vars]
 ENVIRONMENT = "development"

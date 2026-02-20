@@ -38,13 +38,13 @@ function transition (
 }
 
 function nextPrevTransitionHash(repo: ArchiveRepository, messageId: string): string {
-  const transitions = repo.getTransitions(messageId)
+  const transitions = repo.getTransitions(messageId) as Transition[]
   const last = transitions[transitions.length - 1]
   return last?.prevTransitionHash ?? 'GENESIS'
 }
 
 function nextSeq(repo: ArchiveRepository, messageId: string): number {
-  return repo.getTransitions(messageId).length + 1
+  return (repo.getTransitions(messageId) as Transition[]).length + 1
 }
 
 function destinationCount(message: MessageEnvelope): number {
@@ -86,12 +86,16 @@ async function applySealsAndArchive(repo: ArchiveRepository, message: MessageEnv
   }
 
   for (const s of seals) {
-    repo.appendSeal(s)
+    await repo.appendSeal(s)
   }
 
-  const current = repo.snapshotState(message.id) ?? 'pending'
-  repo.appendTransition(transition(message, current, 'authorized', nextSeq(repo, message.id), undefined, nextPrevTransitionHash(repo, message.id)))
-  repo.appendTransition(transition(message, 'authorized', 'archived', nextSeq(repo, message.id), undefined, nextPrevTransitionHash(repo, message.id)))
+  const current = (await repo.snapshotState(message.id)) ?? 'pending'
+  const seq1 = (await repo.getTransitions(message.id)).length + 1
+  const prev1 = ((await repo.getTransitions(message.id)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+  await repo.appendTransition(transition(message, current, 'authorized', seq1, undefined, prev1))
+  const seq2 = (await repo.getTransitions(message.id)).length + 1
+  const prev2 = ((await repo.getTransitions(message.id)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+  await repo.appendTransition(transition(message, 'authorized', 'archived', seq2, undefined, prev2))
   return { messageId: message.id, finalState: 'archived' }
 }
 
@@ -101,8 +105,9 @@ export async function finalizePendingMessage(
   sealContext: SealContext = DEV_SEAL_CONTEXT,
 ): Promise<PipelineResult> {
   const message = repo.getMessage(messageId)
-  if (!message) throw new Error(`Message not found: ${messageId}`)
-  return applySealsAndArchive(repo, message, sealContext)
+  const messageResolved = await message
+  if (!messageResolved) throw new Error(`Message not found: ${messageId}`)
+  return applySealsAndArchive(repo, messageResolved, sealContext)
 }
 
 export async function processDocketMessage (
@@ -110,31 +115,41 @@ export async function processDocketMessage (
   messageId: string,
   sealContext: SealContext = DEV_SEAL_CONTEXT,
 ): Promise<PipelineResult> {
-  const message = repo.getMessage(messageId)
+  const message = await repo.getMessage(messageId)
   if (!message) {
     throw new Error(`Message not found: ${messageId}`)
   }
 
   const normalized = caoni(message)
 
-  repo.appendTransition(transition(normalized, 'pending', 'validated', nextSeq(repo, messageId), undefined, nextPrevTransitionHash(repo, messageId)))
+  const seq1 = (await repo.getTransitions(messageId)).length + 1
+  const prev1 = ((await repo.getTransitions(messageId)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+  await repo.appendTransition(transition(normalized, 'pending', 'validated', seq1, undefined, prev1))
 
   const review = shenfu(normalized)
   if (!review.ok) {
-    repo.appendTransition(transition(normalized, 'validated', 'rejected', nextSeq(repo, messageId), review.reason, nextPrevTransitionHash(repo, messageId)))
+    const seq = (await repo.getTransitions(messageId)).length + 1
+    const prev = ((await repo.getTransitions(messageId)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+    await repo.appendTransition(transition(normalized, 'validated', 'rejected', seq, review.reason, prev))
     return { messageId, finalState: 'rejected', reason: review.reason }
   }
 
-  repo.appendTransition(transition(normalized, 'validated', 'reviewed', nextSeq(repo, messageId), undefined, nextPrevTransitionHash(repo, messageId)))
+  const seq2 = (await repo.getTransitions(messageId)).length + 1
+  const prev2 = ((await repo.getTransitions(messageId)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+  await repo.appendTransition(transition(normalized, 'validated', 'reviewed', seq2, undefined, prev2))
 
   const auth = pizhun(normalized)
   if (!auth.ok) {
-    repo.appendTransition(transition(normalized, 'reviewed', 'rejected', nextSeq(repo, messageId), auth.reason, nextPrevTransitionHash(repo, messageId)))
+    const seq = (await repo.getTransitions(messageId)).length + 1
+    const prev = ((await repo.getTransitions(messageId)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+    await repo.appendTransition(transition(normalized, 'reviewed', 'rejected', seq, auth.reason, prev))
     return { messageId, finalState: 'rejected', reason: auth.reason }
   }
 
   if (destinationCount(normalized) > 1) {
-    repo.appendTransition(transition(normalized, 'reviewed', 'pending', nextSeq(repo, messageId), 'awaiting-multi-office-approval', nextPrevTransitionHash(repo, messageId)))
+    const seq = (await repo.getTransitions(messageId)).length + 1
+    const prev = ((await repo.getTransitions(messageId)).at(-1)?.prevTransitionHash) ?? 'GENESIS'
+    await repo.appendTransition(transition(normalized, 'reviewed', 'pending', seq, 'awaiting-multi-office-approval', prev))
     return { messageId, finalState: 'pending' }
   }
 

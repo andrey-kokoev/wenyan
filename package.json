@@ -6,9 +6,9 @@
   "scripts": {
     "postinstall": "pnpm --filter @wenyan/gateway build",
     "build": "pnpm -r build",
-    "dev": "pnpm --filter @wenyan/app dev:local",
-    "dev:local": "pnpm --filter @wenyan/app dev:local",
-    "dev:remote": "pnpm --filter @wenyan/app dev",
+    "dev": "pnpm --filter @wenyan/server dev:local",
+    "dev:local": "pnpm --filter @wenyan/server dev:local",
+    "dev:remote": "pnpm --filter @wenyan/server dev",
     "dev:server:local": "pnpm --filter @wenyan/server dev:local",
     "dev:server:remote": "pnpm --filter @wenyan/server dev",
     "lint": "pnpm -r lint",

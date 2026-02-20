@@ -7,9 +7,8 @@
   "scripts": {
     "dev": "kill -9 $(lsof -t -i:8787) 2>/dev/null || true && wrangler dev --port 8787 --remote",
     "dev:local": "kill -9 $(lsof -t -i:8787) 2>/dev/null || true && wrangler dev --port 8787",
-    "deploy": "pnpm build:frontend && wrangler deploy --env production",
-    "deploy:dev": "pnpm build:frontend && wrangler deploy --env development",
-    "build:frontend": "cd ../app && VITE_API_URL=/ pnpm build && rm -rf ../server/public && cp -r dist ../server/public",
+    "deploy": "wrangler deploy --env production",
+    "deploy:dev": "wrangler deploy --env development",
     "db:migrate": "node scripts/migrate-both.mjs",
     "seed:themes": "node scripts/seed-themes.mjs",
     "seed:rules": "node scripts/seed-rules.mjs",

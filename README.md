@@ -1,10 +1,9 @@
 # Wenyan
 
-Wenyan is a CF Hono + Vite monorepo with a Wenyan runtime architecture.
+Wenyan is a Cloudflare Hono monorepo with a Wenyan runtime architecture.
 
 ## Packages
 
-- `packages/app` (`@wenyan/app`) - Vue + Vite client
 - `packages/server` (`@wenyan/server`) - Cloudflare Hono server
 - `packages/shared` (`@wenyan/shared`) - compatibility/shared facade
 - `packages/core` (`@wenyan/core`) - schemas, envelope types, state transitions
@@ -16,6 +15,12 @@ Wenyan is a CF Hono + Vite monorepo with a Wenyan runtime architecture.
 - `packages/channel` (`@wenyan/channel`) - reliable local broadcast channel
 - `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for submit/status/stream/query
 - `packages/tests` - shared fixtures used by server tests
+
+## Storage adapters
+
+- `sqlite` adapter
+- `cloudflare` adapter (D1-backed)
+- `memory` adapter
 
 ## Runtime endpoints
 
@@ -32,8 +37,8 @@ Wenyan is a CF Hono + Vite monorepo with a Wenyan runtime architecture.
 ## Commands
 
 - `pnpm install`
-- `pnpm dev` (app + server local: Vite on `5175`, Wrangler local on `8787`)
-- `pnpm dev:remote` (app + server remote Worker preview)
+- `pnpm dev` (server local on `8787`)
+- `pnpm dev:remote` (remote Worker preview)
 - `pnpm dev:server:local` (server only, local wrangler)
 - `pnpm dev:server:remote` (server only, remote wrangler)
 - `pnpm typecheck`
