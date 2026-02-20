@@ -25,7 +25,9 @@
     "genesis:verify": "tsx scripts/genesis-verify.ts",
     "test:archive:persistence": "tsx scripts/test-archive-persistence.ts",
     "test:seal:crypto": "tsx scripts/test-seal-crypto.ts",
-    "test:initiality": "tsx scripts/test-initiality.ts"
+    "test:initiality": "tsx scripts/test-initiality.ts",
+    "test:e2e:examples": "RUN_EXAMPLES_E2E=1 pnpm --filter @wenyan/tests test -- e2e/examples/rituals-0.6.0-examples.e2e.test.ts",
+    "test:bridge:integration:all": "RUN_NATS_INTEGRATION=1 RUN_KAFKA_INTEGRATION=1 RUN_MQTT_INTEGRATION=1 pnpm --filter @wenyan/bridge test"
   },
   "devDependencies": {
     "tsx": "^4.20.5"

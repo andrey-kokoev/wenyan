@@ -1,0 +1,13 @@
+services:
+  mom:
+    image: node:20
+    command: ["sleep", "infinity"]
+  dad:
+    image: node:20
+    command: ["sleep", "infinity"]
+  teen1:
+    image: node:20
+    command: ["sleep", "infinity"]
+  teen2:
+    image: node:20
+    command: ["sleep", "infinity"]

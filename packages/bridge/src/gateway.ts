@@ -26,6 +26,23 @@ function defaultApiBaseUrl(config: BootstrapConfig): string {
   return `http://${config.gateway.listen.host}:${config.gateway.listen.port}/api/wenyan`
 }
 
+function asStringArray(input: unknown): string[] {
+  if (typeof input === 'string' && input) return [input]
+  if (!Array.isArray(input)) return []
+  return input.filter((v): v is string => typeof v === 'string' && v.length > 0)
+}
+
+function matchesRoutingTarget(document: MessageEnvelope, adapter: BridgeAdapter): boolean {
+  const routing = (document.metadata?.routing as Record<string, unknown> | undefined) ?? {}
+  const foreignTargets = asStringArray(routing.foreign_system)
+  const adapterTargets = asStringArray(routing.bridge_adapter)
+  const protocolTargets = asStringArray(routing.protocol)
+  const targets = [...foreignTargets, ...protocolTargets]
+  if (adapterTargets.length === 0 && targets.length === 0) return true
+  if (adapterTargets.includes(adapter.id)) return true
+  return targets.includes(adapter.protocol)
+}
+
 function sanitizedEnvelope(document: MessageEnvelope, idempotencyKey: string): MessageEnvelope {
   return {
     id: document.id,
@@ -262,7 +279,10 @@ export class BridgeGateway {
     for (const event of events) {
       this.lastStreamAt = event.at
       if (event.type !== 'archive.appended' && event.type !== 'transition.committed') continue
+      const message = await this.fetchMessage(event.messageId)
+      if (!message) continue
       for (const adapter of this.adapters) {
+        if (!matchesRoutingTarget(message, adapter)) continue
         await this.archive.enqueueBridgeOutbound(adapter.id, event.messageId, nowIso())
       }
     }

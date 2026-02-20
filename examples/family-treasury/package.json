@@ -1,0 +1,16 @@
+{
+  "name": "wenyan-example-family-treasury",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "treasury:propose": "tsx src/treasury.ts propose",
+    "treasury:attack": "tsx src/treasury.ts attack-simulate",
+    "treasury:audit": "tsx src/treasury.ts audit-export"
+  },
+  "dependencies": {
+    "@wenyan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}

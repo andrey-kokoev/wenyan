@@ -1,0 +1,18 @@
+{
+  "name": "wenyan-example-distributed-todo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "todo:init": "tsx src/cli.ts init",
+    "todo:create": "tsx src/cli.ts create",
+    "todo:amend": "tsx src/cli.ts amend-constitution",
+    "todo:sync": "tsx src/cli.ts sync",
+    "todo:audit": "tsx src/cli.ts audit"
+  },
+  "dependencies": {
+    "@wenyan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}

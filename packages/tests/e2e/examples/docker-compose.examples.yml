@@ -1,0 +1,36 @@
+services:
+  wenyan-a:
+    image: node:20
+    command: ["sleep", "infinity"]
+  wenyan-b:
+    image: node:20
+    command: ["sleep", "infinity"]
+  wenyan-c:
+    image: node:20
+    command: ["sleep", "infinity"]
+  wenyan-d:
+    image: node:20
+    command: ["sleep", "infinity"]
+  nats:
+    image: nats:2
+  kafka:
+    image: bitnami/kafka:3.7
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+  mosquitto:
+    image: eclipse-mosquitto:2
+  minio:
+    image: minio/minio
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.5.0

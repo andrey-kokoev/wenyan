@@ -59,12 +59,14 @@ const SyncConfigSchema = z.object({
 export const BridgeModeSchema = z.enum(['embedded', 'standalone'])
 export const BridgeProtocolSchema = z.enum(['nats', 'kafka', 'mqtt'])
 export const BridgeSyncModeSchema = z.enum(['poll', 'push', 'hybrid'])
+export const BridgeMetadataModeSchema = z.enum(['strict', 'compat'])
 
 const BaseBridgeAdapterConfigSchema = z.object({
   id: z.string().min(1),
   protocol: BridgeProtocolSchema,
   target_genre: z.string().min(1),
   trust_provenance: z.boolean().default(false),
+  metadata_mode: BridgeMetadataModeSchema.default('strict'),
 })
 
 const NatsBridgeAdapterConfigSchema = BaseBridgeAdapterConfigSchema.extend({
@@ -181,10 +183,11 @@ export const BootstrapConfigSchema = z.object({
 export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>
 export type BridgeMode = z.infer<typeof BridgeModeSchema>
 export type BridgeProtocol = z.infer<typeof BridgeProtocolSchema>
-export type BridgeAdapterConfig = z.infer<typeof BridgeAdapterConfigSchema>
-export type NatsBridgeAdapterConfig = z.infer<typeof NatsBridgeAdapterConfigSchema>
-export type KafkaBridgeAdapterConfig = z.infer<typeof KafkaBridgeAdapterConfigSchema>
-export type MqttBridgeAdapterConfig = z.infer<typeof MqttBridgeAdapterConfigSchema>
+export type BridgeMetadataMode = z.infer<typeof BridgeMetadataModeSchema>
+export type BridgeAdapterConfig = z.input<typeof BridgeAdapterConfigSchema>
+export type NatsBridgeAdapterConfig = z.input<typeof NatsBridgeAdapterConfigSchema>
+export type KafkaBridgeAdapterConfig = z.input<typeof KafkaBridgeAdapterConfigSchema>
+export type MqttBridgeAdapterConfig = z.input<typeof MqttBridgeAdapterConfigSchema>
 
 export function parseBootstrapConfigToml(text: string): BootstrapConfig {
   return BootstrapConfigSchema.parse(parseToml(text))

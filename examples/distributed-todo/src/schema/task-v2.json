@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title", "assignee", "done", "priority"],
+  "properties": {
+    "title": { "type": "string" },
+    "assignee": { "type": "string" },
+    "done": { "type": "boolean" },
+    "priority": { "type": "string", "enum": ["low", "medium", "high"] }
+  },
+  "additionalProperties": false
+}

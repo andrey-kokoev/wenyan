@@ -13,6 +13,15 @@ class MqttIntoWenyanAdapter implements IntoWenyan<MqttPayload> {
   constructor(private readonly config: MqttBridgeAdapterConfig) {}
 
   translate(payload: MqttPayload, metadata: ForeignMetadata): TranslationResult {
+    const metadataMode = this.config.metadata_mode ?? 'strict'
+    const baseMetadata: Record<string, unknown> = {
+      idempotency_key: this.extractIdempotencyKey(payload, metadata),
+      routing: { destination: payload.topic.replaceAll('/', '.') },
+      provenance: { foreign: 'mqtt', trusted: this.config.trust_provenance },
+    }
+    if (metadataMode === 'compat') {
+      baseMetadata.mqtt = { qos: payload.qos, retain: payload.retain === true }
+    }
     return {
       ok: true,
       document: {
@@ -21,12 +30,7 @@ class MqttIntoWenyanAdapter implements IntoWenyan<MqttPayload> {
         payload: payload.payload,
         actor: { id: `bridge:${this.config.id}`, role: 'bridge_adapter' },
         submittedAt: metadata.timestampIso,
-        metadata: {
-          idempotency_key: this.extractIdempotencyKey(payload, metadata),
-          routing: { destination: payload.topic.replaceAll('/', '.') },
-          provenance: { foreign: 'mqtt', trusted: this.config.trust_provenance },
-          mqtt: { qos: payload.qos, retain: payload.retain === true },
-        },
+        metadata: baseMetadata,
       },
     }
   }
@@ -36,7 +40,7 @@ class MqttIntoWenyanAdapter implements IntoWenyan<MqttPayload> {
   }
 
   async verifyProvenance(_payload: MqttPayload): Promise<boolean> {
-    return this.config.trust_provenance
+    return this.config.trust_provenance ?? false
   }
 }
 

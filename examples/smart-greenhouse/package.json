@@ -1,0 +1,17 @@
+{
+  "name": "wenyan-example-smart-greenhouse",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "greenhouse:simulate": "tsx src/simulator/sensor-fleet.ts",
+    "greenhouse:bridge": "tsx src/sensor-bridge.ts",
+    "greenhouse:query": "tsx src/analytics.ts",
+    "greenhouse:cold": "tsx src/lib/cold-migration.ts"
+  },
+  "dependencies": {
+    "@wenyan/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5"
+  }
+}

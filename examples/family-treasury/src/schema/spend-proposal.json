@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["to", "amount", "reason"],
+  "properties": {
+    "to": { "type": "string" },
+    "amount": { "type": "number", "minimum": 0 },
+    "reason": { "type": "string" }
+  },
+  "additionalProperties": false
+}

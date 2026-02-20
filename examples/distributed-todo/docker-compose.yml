@@ -1,0 +1,16 @@
+services:
+  alice:
+    image: node:20
+    command: ["sleep", "infinity"]
+  bob:
+    image: node:20
+    command: ["sleep", "infinity"]
+  carol:
+    image: node:20
+    command: ["sleep", "infinity"]
+  dave:
+    image: node:20
+    command: ["sleep", "infinity"]
+  nats:
+    image: nats:2
+    ports: ["4222:4222"]

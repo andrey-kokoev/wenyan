@@ -48,7 +48,7 @@ export class NatsIntoWenyanAdapter implements IntoWenyan<NatsForeignPayload> {
   }
 
   extractIdempotencyKey(payload: NatsForeignPayload, metadata: ForeignMetadata): string {
-    const header = this.config.idempotency_header
+    const header = this.config.idempotency_header ?? 'Nats-Msg-Id'
     return payload.headers[header] ?? metadata.headers[header] ?? `${payload.subject}:${metadata.timestampIso}`
   }
 

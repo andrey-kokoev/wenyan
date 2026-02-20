@@ -399,6 +399,21 @@ export function buildGateway(
           const targetGenre = typeof payload.target_genre === 'string' ? payload.target_genre : undefined
           tiResolver.invalidate(targetGenre)
         }
+        if (message.genre === 'edict' && result.finalState === 'archived') {
+          const payload = message.payload as Record<string, unknown>
+          const lawType = typeof payload.law_type === 'string' ? payload.law_type : undefined
+          const knownLawTypes = new Set([
+            'appointment',
+            'classification',
+            'routing',
+            'admission',
+            'protocol',
+            'regulation',
+            'access_control',
+            'detection_rule',
+          ])
+          resolver.invalidate(knownLawTypes.has(String(lawType)) ? (lawType as EdictLawType) : undefined)
+        }
         if ((options.distributedMode ?? 'single') === 'consort') {
           await options.onSealGossip?.(item.messageId, 5)
           if (result.finalState === 'archived') {
