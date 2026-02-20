@@ -11,6 +11,7 @@ import issuesRoutes from './routes/issues';
 import aiProvidersListHandler from './routes/ai/providers/index.get';
 import adminAiRoutes from './routes/admin/ai';
 import adminConfigRoutes from './routes/admin/config';
+import { InMemoryArchiveRepository } from '@wenyan/archive';
 import { SqliteArchiveRepository } from '@wenyan/archive/sqlite';
 import { ReliableChannel } from '@wenyan/channel';
 import { buildGateway } from '@wenyan/gateway';
@@ -70,9 +71,17 @@ import themeUpdateHandler from './routes/themes/[id]/index.patch';
  * Create and configure the Hono application
  */
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-const wenyanArchive = new SqliteArchiveRepository("./wenyan.dang'an", { retentionDays: 3650 });
-wenyanArchive.initialize();
-wenyanArchive.migrate();
+const wenyanArchive = (() => {
+  try {
+    const repo = new SqliteArchiveRepository("./wenyan.dang'an", { retentionDays: 3650 });
+    repo.initialize();
+    repo.migrate();
+    return repo;
+  } catch {
+    // Cloudflare local worker runtime currently cannot construct node:sqlite.
+    return new InMemoryArchiveRepository();
+  }
+})();
 const wenyanChannel = new ReliableChannel();
 const wenyanGateway = buildGateway(wenyanArchive, wenyanChannel, DEV_SEAL_CONTEXT);
 

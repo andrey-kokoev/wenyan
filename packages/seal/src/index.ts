@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha256'
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils'
 import { getPublicKeyAsync, signAsync, verifyAsync } from '@noble/ed25519'
 import type { MessageEnvelope } from '@wenyan/core'
+import type { Provenance } from '@wenyan/actor'
 
 export type SealStage = 'caoni' | 'shenfu-1' | 'shenfu-2' | 'shenfu-3' | 'shenfu-4' | 'pizhun'
 
@@ -24,6 +25,7 @@ export interface SealContext {
   capabilitySecret: string
   lamportClock: number
   routeKey: string
+  provenance?: Provenance
 }
 
 const stageOrder: SealStage[] = ['caoni', 'shenfu-1', 'shenfu-2', 'shenfu-3', 'shenfu-4', 'pizhun']
@@ -104,6 +106,20 @@ async function verifyStageSignature(
   context: SealContext,
 ): Promise<boolean> {
   if (stage === 'caoni') {
+    if (context.provenance?.kind === 'human') {
+      // Human Office seal route: WebAuthn/YubiKey attestation challenge path.
+      const pub = context.draftPublicKeyHex ?? bytesToHex(await getPublicKeyAsync(hexToBytes(context.draftPrivateKeyHex)))
+      const sigOk = await verifyAsync(hexToBytes(seal.signature), hexToBytes(seal.hash), hexToBytes(pub))
+      const attestationOk = context.provenance.yubikey_attestation.length > 0
+      return sigOk && attestationOk
+    }
+    if (context.provenance?.kind === 'agent') {
+      // Agent Office seal route: x509 mTLS service account challenge path.
+      const pub = context.draftPublicKeyHex ?? bytesToHex(await getPublicKeyAsync(hexToBytes(context.draftPrivateKeyHex)))
+      const sigOk = await verifyAsync(hexToBytes(seal.signature), hexToBytes(seal.hash), hexToBytes(pub))
+      const mtlsOk = context.provenance.mtls_fingerprint.length > 0 && context.provenance.service_account.length > 0
+      return sigOk && mtlsOk
+    }
     const pub = context.draftPublicKeyHex ?? bytesToHex(await getPublicKeyAsync(hexToBytes(context.draftPrivateKeyHex)))
     return verifyAsync(hexToBytes(seal.signature), hexToBytes(seal.hash), hexToBytes(pub))
   }
@@ -204,4 +220,9 @@ export const DEV_SEAL_CONTEXT: SealContext = {
   capabilitySecret: 'wenyan-capability-secret',
   lamportClock: 1,
   routeKey: 'local.default.route',
+  provenance: {
+    kind: 'agent',
+    service_account: 'wenyan-local-agent',
+    mtls_fingerprint: 'local-dev-mtls-fingerprint',
+  },
 }

@@ -1,9 +1,22 @@
-export type ActorRole = 'scribe' | 'reviewer' | 'approver' | 'archivist' | 'admin';
+export type ActorRole = 'scribe' | 'reviewer' | 'approver' | 'archivist' | 'admin'
+
+export type HumanActor = {
+  kind: 'human'
+  yubikey_attestation: string
+}
+
+export type AgentActor = {
+  kind: 'agent'
+  service_account: string
+  mtls_fingerprint: string
+}
+
+export type Provenance = HumanActor | AgentActor
 
 export interface RolePermissions {
-  draft: boolean;
-  review: boolean;
-  authorize: boolean;
+  draft: boolean
+  review: boolean
+  authorize: boolean
 }
 
 const matrix: Record<ActorRole, RolePermissions> = {
@@ -12,20 +25,28 @@ const matrix: Record<ActorRole, RolePermissions> = {
   approver: { draft: false, review: true, authorize: true },
   archivist: { draft: false, review: false, authorize: false },
   admin: { draft: true, review: true, authorize: true },
-};
+}
 
 export function canDraft(role: ActorRole): boolean {
-  return matrix[role].draft;
+  return matrix[role].draft
 }
 
 export function canReview(role: ActorRole): boolean {
-  return matrix[role].review;
+  return matrix[role].review
 }
 
 export function canAuthorize(role: ActorRole): boolean {
-  return matrix[role].authorize;
+  return matrix[role].authorize
 }
 
 export function rolePermissions(role: ActorRole): RolePermissions {
-  return matrix[role];
+  return matrix[role]
+}
+
+export function isHumanActor(p: Provenance): p is HumanActor {
+  return p.kind === 'human'
+}
+
+export function isAgentActor(p: Provenance): p is AgentActor {
+  return p.kind === 'agent'
 }

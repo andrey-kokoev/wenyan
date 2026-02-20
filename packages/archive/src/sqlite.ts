@@ -319,6 +319,20 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return rows.map((r) => r.office)
   }
 
+  stateAt(messageId: string, timestampIso: string): MessageState | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT to_state
+         FROM transitions
+         WHERE message_id = ? AND sealed_at <= ?
+         ORDER BY sequence_no DESC
+         LIMIT 1`,
+      )
+      .get(messageId, timestampIso) as { to_state?: MessageState } | undefined
+
+    return row?.to_state
+  }
+
   close(): void {
     this.db.close()
   }

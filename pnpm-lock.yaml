@@ -160,6 +160,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@wenyan/archive':
+        specifier: workspace:*
+        version: link:../archive
       '@wenyan/core':
         specifier: workspace:*
         version: link:../core
@@ -186,6 +189,9 @@ importers:
 
   packages/gateway:
     dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.8
+        version: 1.19.9(hono@4.12.0)
       '@wenyan/archive':
         specifier: workspace:*
         version: link:../archive
@@ -205,6 +211,9 @@ importers:
         specifier: ^4.11.7
         version: 4.12.0
     devDependencies:
+      '@types/node':
+        specifier: ^25.2.0
+        version: 25.3.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -242,6 +251,9 @@ importers:
       '@noble/hashes':
         specifier: ^1.8.0
         version: 1.8.0
+      '@wenyan/actor':
+        specifier: workspace:*
+        version: link:../actor
       '@wenyan/core':
         specifier: workspace:*
         version: link:../core

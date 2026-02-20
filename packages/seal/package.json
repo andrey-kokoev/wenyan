@@ -13,6 +13,7 @@
   "dependencies": {
     "@noble/ed25519": "^2.1.0",
     "@noble/hashes": "^1.8.0",
+    "@wenyan/actor": "workspace:*",
     "@wenyan/core": "workspace:*"
   },
   "devDependencies": {

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "packageManager": "pnpm@10.6.0",
   "scripts": {
+    "postinstall": "pnpm --filter @wenyan/gateway build",
     "build": "pnpm -r build",
     "dev": "pnpm --filter @wenyan/app dev:local",
     "dev:local": "pnpm --filter @wenyan/app dev:local",

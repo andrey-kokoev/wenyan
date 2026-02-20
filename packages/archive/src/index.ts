@@ -28,6 +28,7 @@ export interface ArchiveRepository {
   putIdempotency(key: string, responseJson: string, expiresAt: string): void
   addOfficeApproval(messageId: string, office: string): number
   getOfficeApprovals(messageId: string): string[]
+  stateAt(messageId: string, timestampIso: string): MessageState | undefined
 }
 
 export class InMemoryArchiveRepository implements ArchiveRepository {
@@ -119,4 +120,14 @@ export class InMemoryArchiveRepository implements ArchiveRepository {
   getOfficeApprovals(messageId: string): string[] {
     return Array.from(this.approvals.get(messageId) ?? new Set<string>())
   }
+
+  stateAt(messageId: string, timestampIso: string): MessageState | undefined {
+    const transitions = (this.transitions.get(messageId) ?? [])
+      .filter((t) => (t.sealedAt ?? t.at) <= timestampIso)
+      .sort((a, b) => b.sequenceNo - a.sequenceNo)
+    return transitions[0]?.toState
+  }
 }
+
+export * from './query'
+export * from './replay'
