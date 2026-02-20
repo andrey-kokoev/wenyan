@@ -1,0 +1,6 @@
+{
+  "profile": "stress",
+  "metric": "synthetic_documents_simulated",
+  "value": 1000000,
+  "unit": "count"
+}

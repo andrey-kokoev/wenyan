@@ -71,6 +71,7 @@ export interface Bindings {
   WENYAN_BRIDGE_BREAKER_FAILURE_RATE?: string
   WENYAN_BRIDGE_BREAKER_COOL_DOWN_MS?: string
   WENYAN_BRIDGE_BREAKER_MAX_RETRIES?: string
+  WENYAN_METRICS_ENABLED?: string
 }
 
 /**

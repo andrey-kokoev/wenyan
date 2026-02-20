@@ -1,0 +1,6 @@
+{
+  "title": "Dang'an Health",
+  "panels": [
+    { "type": "graph", "title": "Merkle Root Age", "targets": [{ "expr": "wenyan_merkle_root_age_seconds" }] }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "name": "@wenyan/imperial-works",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,8 +10,13 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist/**/*", "README.md"],
-  "publishConfig": { "registry": "https://npm.pkg.github.com" },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/andrey-kokoev/wenyan.git",

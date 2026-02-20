@@ -28,6 +28,7 @@ If you want to understand the architectural rationale and design principles behi
 - `packages/bridge` (`@wenyan/bridge`) - foreign protocol bridge runtime (standalone Node)
 - `packages/imperial-works` (`@wenyan/imperial-works`) - role hierarchy, emergency routing, and construction anomaly rules
 - `packages/mobile-foreman` (`@wenyan/mobile-foreman`) - PWA offline foreman queue and sync primitives
+- `packages/benchmark` (`@wenyan/benchmark`) - deterministic toy/stress benchmark harness
 - `packages/genesis` (`@wenyan/genesis`) - explicit genesis bootstrap (`createEmptyOffice`, `applyGenesis`)
 - `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`, `imperialworks`, `mobile sync`
 - `packages/tests` - shared fixtures used by server tests
@@ -119,6 +120,12 @@ batch_size = 100
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm build`
+- `pnpm security:audit`
+- `pnpm security:fuzz`
+- `pnpm sbom:generate`
+- `pnpm docs:api`
+- `pnpm benchmark:toy:check`
+- `pnpm benchmark:stress`
 - `wenyan --join gossip://seed:7946`
 - `wenyan sync --peer gossip://seed:7946`
 - `wenyan mesh status`
@@ -145,7 +152,7 @@ Install packages:
 npm install @wenyan/core @wenyan/cli @wenyan/gateway
 ```
 
-Published packages in v0.3.x:
+Published packages in v1.x:
 
 - `@wenyan/core`
 - `@wenyan/actor`
@@ -166,5 +173,9 @@ Published packages in v0.3.x:
 1. Bump versions as needed in workspace package manifests.
 2. Push changes to `main`.
 3. Create and push tag: `vX.Y.Z`.
-4. Verify `.github/workflows/release.yml` succeeds.
-5. Confirm packages appear in GitHub repository **Packages** section.
+4. Verify deploy docs are current:
+   - `docs/deploy/quickstart.md`
+   - `docs/deploy/production.md`
+   - `docs/deploy/enterprise.md`
+5. Verify release validation commands pass locally (`pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build`, `pnpm security:audit`, `pnpm benchmark:toy:check`).
+6. Confirm packages appear in GitHub repository **Packages** section.

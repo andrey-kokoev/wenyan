@@ -1,0 +1,6 @@
+{
+  "profile": "stress",
+  "metric": "seal_throughput",
+  "value": 2200,
+  "unit": "seals_per_second"
+}

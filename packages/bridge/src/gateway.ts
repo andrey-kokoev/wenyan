@@ -14,6 +14,10 @@ interface BreakerState {
   pausedUntil: number
 }
 
+const MAX_FOREIGN_TOPIC_LENGTH = 256
+const MAX_FOREIGN_HEADER_VALUE = 2048
+const SAFE_TOPIC = /^[a-zA-Z0-9._:/-]+$/
+
 export interface BridgeGatewayOptions {
   archive?: ArchiveRepository
   bootstrap: BootstrapConfig
@@ -58,6 +62,27 @@ function sanitizedEnvelope(document: MessageEnvelope, idempotencyKey: string): M
       routing: (document.metadata?.routing as Record<string, unknown> | undefined) ?? {},
       provenance: (document.metadata?.provenance as Record<string, unknown> | undefined) ?? {},
     },
+  }
+}
+
+function sanitizeForeignMetadata(metadata: ForeignMetadata): ForeignMetadata {
+  const subject = String(metadata.subjectOrTopic ?? '')
+  if (subject.length === 0 || subject.length > MAX_FOREIGN_TOPIC_LENGTH || !SAFE_TOPIC.test(subject)) {
+    throw new Error('foreign-metadata-invalid-topic')
+  }
+  const headers: Record<string, string> = {}
+  for (const [k, v] of Object.entries(metadata.headers ?? {})) {
+    const key = String(k).trim()
+    const normalized = key.toLowerCase()
+    if (!key || normalized === '__proto__' || normalized === 'constructor' || normalized === 'prototype') continue
+    const value = String(v)
+    if (value.length > MAX_FOREIGN_HEADER_VALUE) continue
+    headers[key] = value
+  }
+  return {
+    ...metadata,
+    subjectOrTopic: subject,
+    headers,
   }
 }
 
@@ -194,7 +219,22 @@ export class BridgeGateway {
   }
 
   private async onInbound(adapter: BridgeAdapter, payload: unknown, metadata: ForeignMetadata): Promise<void> {
-    const provenanceOk = await adapter.into.verifyProvenance(payload, metadata)
+    let safeMetadata: ForeignMetadata
+    try {
+      safeMetadata = sanitizeForeignMetadata(metadata)
+    } catch (error) {
+      await this.archive.appendForeignRejected({
+        adapterId: adapter.id,
+        reasonCode: 'invalid-foreign-metadata',
+        reasonDetail: error instanceof Error ? error.message : 'invalid-foreign-metadata',
+        payloadJson: JSON.stringify(payload),
+        foreignId: undefined,
+        receivedAt: nowIso(),
+      })
+      return
+    }
+
+    const provenanceOk = await adapter.into.verifyProvenance(payload, safeMetadata)
     if (!provenanceOk) {
       await this.archive.appendForeignRejected({
         adapterId: adapter.id,
@@ -207,8 +247,8 @@ export class BridgeGateway {
       return
     }
 
-    const idempotencyKey = adapter.into.extractIdempotencyKey(payload, metadata)
-    const translated = adapter.into.translate(payload, metadata)
+    const idempotencyKey = adapter.into.extractIdempotencyKey(payload, safeMetadata)
+    const translated = adapter.into.translate(payload, safeMetadata)
     if (!translated.ok) {
       await this.archive.appendForeignRejected({
         adapterId: adapter.id,
@@ -221,7 +261,7 @@ export class BridgeGateway {
       return
     }
 
-    const foreignBytes = Buffer.byteLength(JSON.stringify({ payload, metadata }), 'utf8')
+    const foreignBytes = Buffer.byteLength(JSON.stringify({ payload, metadata: safeMetadata }), 'utf8')
     const clean = sanitizedEnvelope(translated.document, idempotencyKey)
     const wenyanBytes = Buffer.byteLength(JSON.stringify(clean), 'utf8')
     this.metrics.bridge_foreign_bytes_in += foreignBytes

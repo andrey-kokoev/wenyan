@@ -1,3 +1,4 @@
+/** @public Frozen in v1.x */
 export type MembershipState = 'alive' | 'suspect' | 'dead'
 
 export interface MemberRecord {
@@ -15,6 +16,7 @@ export interface GossipEvent {
   payload?: Record<string, unknown>
 }
 
+/** @public Frozen in v1.x */
 export interface MembershipService {
   upsert(nodeId: string, address: string): void
   heartbeat(nodeId: string): void
@@ -24,6 +26,7 @@ export interface MembershipService {
   isPartitioned(): boolean
 }
 
+/** @public Frozen in v1.x */
 export class SwimMembership implements MembershipService {
   private readonly members = new Map<string, MemberRecord>()
 
@@ -80,6 +83,7 @@ export class SwimMembership implements MembershipService {
   }
 }
 
+/** @public Frozen in v1.x */
 export interface BroadcastMessage {
   id: string
   topic: string
@@ -88,11 +92,13 @@ export interface BroadcastMessage {
   tracestate?: string
 }
 
+/** @public Frozen in v1.x */
 export interface PlumtreeBroadcast {
   eagerPush(message: BroadcastMessage): string[]
   lazyDigest(digestIds: string[]): string[]
 }
 
+/** @public Frozen in v1.x */
 export class InMemoryPlumtree implements PlumtreeBroadcast {
   private readonly seen = new Set<string>()
 
@@ -110,6 +116,7 @@ export class InMemoryPlumtree implements PlumtreeBroadcast {
   }
 }
 
+/** @public Frozen in v1.x */
 export class ImperialBroadcast {
   private readonly delivered = new Set<string>()
 

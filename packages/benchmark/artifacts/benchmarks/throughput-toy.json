@@ -1,0 +1,6 @@
+{
+  "profile": "toy",
+  "metric": "seal_throughput",
+  "value": 600,
+  "unit": "seals_per_second"
+}

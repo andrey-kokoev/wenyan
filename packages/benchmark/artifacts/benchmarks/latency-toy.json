@@ -1,0 +1,6 @@
+{
+  "profile": "toy",
+  "metric": "seal_p99_latency",
+  "value": 0.05,
+  "unit": "seconds"
+}

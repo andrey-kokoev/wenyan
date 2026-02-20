@@ -1,0 +1,34 @@
+{
+  ".": {
+    "types": "./dist/index.d.ts",
+    "import": "./dist/index.js"
+  },
+  "./adapters/nats": {
+    "types": "./dist/adapters/nats.d.ts",
+    "import": "./dist/adapters/nats.js"
+  },
+  "./adapters/kafka": {
+    "types": "./dist/adapters/kafka.d.ts",
+    "import": "./dist/adapters/kafka.js"
+  },
+  "./adapters/mqtt": {
+    "types": "./dist/adapters/mqtt.d.ts",
+    "import": "./dist/adapters/mqtt.js"
+  },
+  "./adapters/erp-http": {
+    "types": "./dist/adapters/erp-http.d.ts",
+    "import": "./dist/adapters/erp-http.js"
+  },
+  "./adapters/payroll-http": {
+    "types": "./dist/adapters/payroll-http.d.ts",
+    "import": "./dist/adapters/payroll-http.js"
+  },
+  "./adapters/regulatory-mqtt": {
+    "types": "./dist/adapters/regulatory-mqtt.d.ts",
+    "import": "./dist/adapters/regulatory-mqtt.js"
+  },
+  "./sync": {
+    "types": "./dist/sync.d.ts",
+    "import": "./dist/sync.js"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "title": "Tongzheng Si",
+  "panels": [
+    { "type": "graph", "title": "Byzantine Suspicions", "targets": [{ "expr": "wenyan_byzantine_suspicions" }] }
+  ]
+}

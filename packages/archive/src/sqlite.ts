@@ -45,6 +45,17 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     this.retentionDays = options.retentionDays ?? 3650
     this.db.exec('PRAGMA journal_mode = WAL;')
     this.db.exec('PRAGMA foreign_keys = ON;')
+    this.assertIntegrity()
+  }
+
+  private assertIntegrity(): void {
+    const rows = this.db.prepare('PRAGMA quick_check').all() as Array<Record<string, unknown>>
+    const values = rows
+      .map((row) => String(Object.values(row)[0] ?? ''))
+      .filter(Boolean)
+    if (!values.includes('ok')) {
+      throw new Error(`archive-integrity-check-failed:${values.join(',') || 'unknown'}`)
+    }
   }
 
   initialize(): void {

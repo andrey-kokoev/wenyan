@@ -16,7 +16,7 @@ describe('Wenyan Server API', () => {
     
     const json = await res.json();
     expect(json.message).toBe('Wenyan Server API');
-    expect(json.version).toBe('0.2.0');
+    expect(json.version).toBe('1.0.0');
   });
 
   it('should respond to health check', async () => {
@@ -54,5 +54,13 @@ describe('Wenyan Server API', () => {
     });
     
     expect(res.status).toBe(401);
+  });
+
+  it('should expose prometheus metrics endpoint', async () => {
+    const res = await request('/metrics');
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('wenyan_seals_total');
+    expect(text).toContain('wenyan_seal_latency_seconds');
   });
 });

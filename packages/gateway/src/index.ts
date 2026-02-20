@@ -23,6 +23,11 @@ import {
 } from '@wenyan/pipeline'
 import { AnomalyDetector, AuditService, CheckpointService, WenyanTracer } from '@wenyan/censorate'
 
+const MAX_JSON_BODY_BYTES = 256 * 1024
+const MAX_HEADER_VALUE_BYTES = 8 * 1024
+const MAX_TOTAL_HEADER_BYTES = 32 * 1024
+const UTF8_ENCODER = new TextEncoder()
+
 function isZodLikeError(error: unknown): error is { issues: unknown[] } {
   return Boolean(
     error &&
@@ -30,6 +35,26 @@ function isZodLikeError(error: unknown): error is { issues: unknown[] } {
       'issues' in error &&
       Array.isArray((error as { issues?: unknown[] }).issues),
   )
+}
+
+function headersWithinLimits(headers: Headers): boolean {
+  let total = 0
+  for (const [k, v] of headers.entries()) {
+    const kb = UTF8_ENCODER.encode(k).length
+    const vb = UTF8_ENCODER.encode(v).length
+    total += kb + vb
+    if (vb > MAX_HEADER_VALUE_BYTES) return false
+    if (total > MAX_TOTAL_HEADER_BYTES) return false
+  }
+  return true
+}
+
+function contentLengthWithinLimit(headers: Headers): boolean {
+  const raw = headers.get('content-length')
+  if (!raw) return true
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0) return false
+  return n <= MAX_JSON_BODY_BYTES
 }
 
 class SchemaUndefinedError extends Error {
@@ -287,6 +312,12 @@ export function buildGateway(
 
   app.post('/messages', async (c) => {
     try {
+      if (!headersWithinLimits(c.req.raw.headers)) {
+        return c.json({ error: 'headers-too-large' }, 431)
+      }
+      if (!contentLengthWithinLimit(c.req.raw.headers)) {
+        return c.json({ error: 'payload-too-large' }, 413)
+      }
       const nowIso = new Date().toISOString()
       const idempotencyKey = c.req.header('x-idempotency-key')
       const { repo, resolver, tiResolver, tracer, anomaly, emergency } = await resolveRuntime()
@@ -495,6 +526,12 @@ export function buildGateway(
   })
 
   app.post('/messages/:id/approvals', async (c) => {
+    if (!headersWithinLimits(c.req.raw.headers)) {
+      return c.json({ error: 'headers-too-large' }, 431)
+    }
+    if (!contentLengthWithinLimit(c.req.raw.headers)) {
+      return c.json({ error: 'payload-too-large' }, 413)
+    }
     const { repo, resolver } = await resolveRuntime()
     const id = c.req.param('id')
     const message = await repo.getMessage(id)

@@ -1,0 +1,6 @@
+{
+  "profile": "stress",
+  "metric": "seal_p99_latency",
+  "value": 0.25,
+  "unit": "seconds"
+}

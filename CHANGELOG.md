@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.0.0] - Unreleased
+
+### Added
+- Production-hardening security/process artifacts: `SECURITY.md`, `audit/`, fuzz harness scaffolds, SBOM tooling, and reproducible build documentation.
+- Formal specification set under `spec/` with protocol and paper drafts for v1.0.
+- Benchmark package `@wenyan/benchmark` with deterministic toy-profile regression checks and stress-profile reporting.
+- Infrastructure delivery under `infra/`: Terraform module/example, Helm chart, Go operator stub, and monitoring assets.
+- Deployment runbooks under `docs/deploy/` (`quickstart`, `production`, `enterprise`) for local, 3-node, and enterprise setup paths.
+- Changesets-based release/versioning setup and release-checklist updates for v1.0.
+
+### Changed
+- Seal internals split into dedicated crypto/chain modules while preserving public exports.
+- Gateway and bridge boundary hardening (payload/header limits and ingress sanitization) without endpoint contract changes.
+- Server runtime includes optional Prometheus-compatible `/metrics` endpoint with Wenyan counters/histograms.
+- Public API stability policy formalized for `@wenyan/core`, `@wenyan/gossip`, and `@wenyan/bridge`.
+
+### Deferred External Gates
+- External security firm sign-off, long burn-in, and external registry publication are tracked but not blocking for in-repo v1.0 implementation.
+
 ## [0.7.0] - 2026-02-20
 
 ### Added

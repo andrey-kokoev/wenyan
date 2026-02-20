@@ -1,0 +1,16 @@
+{
+  "entryPoints": [
+    "packages/core/src/index.ts",
+    "packages/gossip/src/index.ts",
+    "packages/bridge/src/index.ts"
+  ],
+  "entryPointStrategy": "expand",
+  "out": "docs/api",
+  "tsconfig": "tsconfig.typedoc.json",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeExternals": true,
+  "hideGenerator": true,
+  "readme": "none",
+  "skipErrorChecking": true
+}

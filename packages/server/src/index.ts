@@ -78,6 +78,21 @@ import themeUpdateHandler from './routes/themes/[id]/index.patch';
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const DEFAULT_NODE_ID = '00000000-0000-4000-8000-000000000000';
 const DEFAULT_GENESIS_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+const HISTOGRAM_BUCKETS = [0.005, 0.01, 0.05, 0.1, 0.5, 1, 5]
+
+interface WenyanMetricsState {
+  sealsTotal: number
+  sealLatencySeconds: number[]
+  byzantineSuspicions: number
+  lastMerkleUpdateAt: number
+}
+
+const wenyanMetrics: WenyanMetricsState = {
+  sealsTotal: 0,
+  sealLatencySeconds: [],
+  byzantineSuspicions: 0,
+  lastMerkleUpdateAt: Date.now(),
+}
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   const n = Number(raw);
@@ -116,6 +131,45 @@ function parseBridgeAdapters(raw: string | undefined): Array<Record<string, unkn
   } catch {
     return []
   }
+}
+
+function metricsEnabled(env: Bindings): boolean {
+  const raw = env.WENYAN_METRICS_ENABLED
+  if (!raw) return true
+  return raw.toLowerCase() !== 'false'
+}
+
+function recordSealLatency(seconds: number): void {
+  wenyanMetrics.sealLatencySeconds.push(seconds)
+  if (wenyanMetrics.sealLatencySeconds.length > 5000) {
+    wenyanMetrics.sealLatencySeconds.shift()
+  }
+}
+
+function renderMetricsText(): string {
+  wenyanMetrics.byzantineSuspicions = (wenyanMembership?.list() ?? []).filter((m) => m.state !== 'alive').length
+  const latencies = wenyanMetrics.sealLatencySeconds
+  const sorted = [...latencies].sort((a, b) => a - b)
+  const counts = HISTOGRAM_BUCKETS.map((b) => sorted.filter((x) => x <= b).length)
+  const lines: string[] = []
+  lines.push('# HELP wenyan_seals_total Total processed seals.')
+  lines.push('# TYPE wenyan_seals_total counter')
+  lines.push(`wenyan_seals_total ${wenyanMetrics.sealsTotal}`)
+  lines.push('# HELP wenyan_seal_latency_seconds Seal pipeline latency histogram.')
+  lines.push('# TYPE wenyan_seal_latency_seconds histogram')
+  HISTOGRAM_BUCKETS.forEach((bucket, i) => {
+    lines.push(`wenyan_seal_latency_seconds_bucket{le=\"${bucket}\"} ${counts[i]}`)
+  })
+  lines.push(`wenyan_seal_latency_seconds_bucket{le=\"+Inf\"} ${latencies.length}`)
+  lines.push(`wenyan_seal_latency_seconds_count ${latencies.length}`)
+  lines.push(`wenyan_seal_latency_seconds_sum ${latencies.reduce((a, b) => a + b, 0)}`)
+  lines.push('# HELP wenyan_byzantine_suspicions Number of suspected/dead members in current view.')
+  lines.push('# TYPE wenyan_byzantine_suspicions gauge')
+  lines.push(`wenyan_byzantine_suspicions ${wenyanMetrics.byzantineSuspicions}`)
+  lines.push('# HELP wenyan_merkle_root_age_seconds Age of last archive merkle update in seconds.')
+  lines.push('# TYPE wenyan_merkle_root_age_seconds gauge')
+  lines.push(`wenyan_merkle_root_age_seconds ${Math.max(0, Math.floor((Date.now() - wenyanMetrics.lastMerkleUpdateAt) / 1000))}`)
+  return `${lines.join('\\n')}\\n`
 }
 
 function resolveBootstrap(env: Bindings) {
@@ -215,10 +269,24 @@ const wenyanGateway = buildGateway(async () => {
   return wenyanArchive;
 }, wenyanChannel, DEV_SEAL_CONTEXT, wenyanGatewayOptions);
 
+wenyanChannel.subscribe((event) => {
+  if (event.type === 'archive.appended') {
+    wenyanMetrics.sealsTotal += 6
+    wenyanMetrics.lastMerkleUpdateAt = Date.now()
+  }
+})
+
 /**
  * Apply common middleware to all routes
  */
 app.use('*', ...commonMiddleware);
+app.use('/api/wenyan/*', async (c, next) => {
+  const started = Date.now()
+  await next()
+  if (c.req.path.endsWith('/messages') && c.req.method === 'POST') {
+    recordSealLatency((Date.now() - started) / 1000)
+  }
+})
 app.use('*', async (c, next) => {
   if (!wenyanArchiveInit) {
     wenyanArchiveInit = (async () => {
@@ -241,6 +309,7 @@ app.use('*', async (c, next) => {
         }
         wenyanGatewayOptions.meshMembers = () => wenyanMembership?.list() ?? [];
         wenyanGatewayOptions.meshPartitioned = () => wenyanMembership?.isPartitioned() ?? false;
+        wenyanMetrics.byzantineSuspicions = (wenyanMembership?.list() ?? []).filter((m) => m.state !== 'alive').length
         wenyanGatewayOptions.onMeshJoin = async (peer) => {
           wenyanMembership?.upsert(peer, peer);
           return { ok: true, detail: `joined ${peer}` };
@@ -318,6 +387,13 @@ app.use('*', async (c, next) => {
 app.route('/auth', authRoutes);
 app.route('/api/auth', authRoutes);
 app.route('/api/wenyan', wenyanGateway);
+app.get('/metrics', (c) => {
+  if (!metricsEnabled(c.env)) return c.body('', 404)
+  return new Response(renderMetricsText(), {
+    headers: { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' },
+    status: 200,
+  })
+});
 
 /**
  * Health check routes
@@ -330,7 +406,7 @@ app.route('/health', healthRoutes);
 app.get('/api', (c) => {
   return c.json({
     name: 'Wenyan API',
-    version: '0.2.0',
+    version: '1.0.0',
     environment: c.env.ENVIRONMENT,
     endpoints: {
       health: '/health',
@@ -454,7 +530,7 @@ app.patch('/api/themes/:id', themeUpdateHandler);
 app.get('*', async (c) => {
   return c.json({
     message: 'Wenyan Server API',
-    version: '0.2.0',
+    version: '1.0.0',
     environment: c.env.ENVIRONMENT,
     timestamp: new Date().toISOString(),
     note: 'UI removed. API-only runtime.',
