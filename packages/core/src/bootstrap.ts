@@ -22,6 +22,15 @@ const GatewayConfigSchema = z.object({
   upstream: z.string().url().optional(),
 })
 
+const AuthConfigSchema = z
+  .object({
+    jwt_issuer: z.string().min(1).default('wenyan.local'),
+    jwt_audience: z.string().min(1).default('wenyan-gateway'),
+    jwt_alg: z.enum(['HS256']).default('HS256'),
+    jwt_secret: z.string().min(1),
+    allow_header_actor: z.boolean().default(false),
+  })
+
 const LawConfigSchema = z.object({
   mode: LawModeSchema.default('strict'),
 })
@@ -163,6 +172,13 @@ export const BootstrapConfigSchema = z.object({
   archive: ArchiveConfigSchema,
   genesis: GenesisConfigSchema,
   gateway: GatewayConfigSchema,
+  auth: AuthConfigSchema.default({
+    jwt_issuer: 'wenyan.local',
+    jwt_audience: 'wenyan-gateway',
+    jwt_alg: 'HS256',
+    jwt_secret: 'wenyan-local-jwt-secret',
+    allow_header_actor: false,
+  }),
   law: LawConfigSchema.default({ mode: 'strict' }),
   law_cache: LawCacheConfigSchema.optional(),
   distributed: DistributedConfigSchema.default({

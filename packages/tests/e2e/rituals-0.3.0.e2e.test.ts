@@ -11,6 +11,7 @@ import { ReliableChannel, constitutionalMerkleRoot } from '../../channel/src/ind
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
 import { createEmptyOffice, applyGenesisFromDir } from '../../genesis/src/index'
 import type { MessageEnvelope } from '../../core/src/index'
+import { waitForState } from './helpers'
 
 const tempDirs = new Set<string>()
 
@@ -36,6 +37,40 @@ function openRepoFromOffice(dir: string): SqliteArchiveRepository {
   repo.initialize()
   repo.migrate()
   return repo
+}
+
+function seedReadAccessLaw(repo: SqliteArchiveRepository): void {
+  const id = `edict-access-control-${randomUUID()}`
+  repo.appendMessage({
+    id,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: {
+          genesis_admin: ['*'],
+        },
+        query_hash_only: true,
+      },
+      precedence: 100,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: id,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
 }
 
 function countMessages(dbPath: string): number {
@@ -136,6 +171,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     expect(sealCount(dbPath, tiId!)).toBeGreaterThan(0)
 
     const repo = openRepoFromOffice(dir)
+    seedReadAccessLaw(repo)
     const app = buildGateway(repo, new ReliableChannel(), THREE_IMPERIAL, { lawMode: 'strict' })
 
     const addPetitionTi = await submit(
@@ -146,10 +182,14 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title'] },
       }),
     )
-    expect(addPetitionTi.status).toBe(201)
+    expect(addPetitionTi.status).toBe(202)
+    const addPetitionTiId = (await addPetitionTi.json() as { id: string }).id
+    await waitForState(app, addPetitionTiId, 'archived')
 
     const petition = await submit(app, baseMessage('petition', { title: 'after genesis' }))
-    expect(petition.status).toBe(201)
+    expect(petition.status).toBe(202)
+    const petitionId = (await petition.json() as { id: string }).id
+    await waitForState(app, petitionId, 'archived')
     repo.close()
   })
 
@@ -160,6 +200,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     const dbPath = resolve(dir, "wenyan.dang'an")
 
     const repoSingle = openRepoFromOffice(dir)
+    seedReadAccessLaw(repoSingle)
     const appSingle = buildGateway(repoSingle, new ReliableChannel(), SINGLE_IMPERIAL, { lawMode: 'strict' })
     const blocked = await submit(
       appSingle,
@@ -169,11 +210,14 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title'] },
       }),
     )
-    expect(blocked.status).toBe(403)
-    expect(await blocked.json()).toMatchObject({ error: 'insufficient-imperial-authority' })
+    expect(blocked.status).toBe(202)
+    const blockedId = (await blocked.json() as { id: string }).id
+    const blockedState = await waitForState(appSingle, blockedId, 'rejected')
+    expect(blockedState.transitions.at(-1)?.reason).toBe('insufficient-imperial-authority')
     repoSingle.close()
 
     const repoThree = openRepoFromOffice(dir)
+    seedReadAccessLaw(repoThree)
     const appThree = buildGateway(repoThree, new ReliableChannel(), THREE_IMPERIAL, { lawMode: 'strict' })
     const accepted = await submit(
       appThree,
@@ -183,8 +227,9 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title'] },
       }),
     )
-    expect(accepted.status).toBe(201)
+    expect(accepted.status).toBe(202)
     const body = (await accepted.json()) as { id: string }
+    await waitForState(appThree, body.id, 'archived')
 
     const db = new DatabaseSync(dbPath)
     const row = db
@@ -202,6 +247,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     await applyGenesisFromDir(dir)
 
     const repo = openRepoFromOffice(dir)
+    seedReadAccessLaw(repo)
     const app = buildGateway(repo, new ReliableChannel(), SINGLE_IMPERIAL, { lawMode: 'strict' })
     const edict = baseMessage('edict', {
       law_type: 'routing',
@@ -212,14 +258,9 @@ describe('Wenyan v0.3.0 rituals', () => {
       target_genre: 'phantom',
     })
     const res = await submit(app, edict)
-    expect(res.status).toBe(422)
-    expect(await res.json()).toMatchObject({
-      error: 'Invalid Constitutional Reference',
-      reason: 'invalid-constitutional-reference',
-    })
+    expect(res.status).toBe(202)
 
-    const status = await app.request(`/messages/${edict.id}`)
-    const details = await status.json() as { state: string; transitions: Array<{ reason?: string }> }
+    const details = await waitForState(app, edict.id, 'rejected')
     expect(details.state).toBe('rejected')
     expect(details.transitions.at(-1)?.reason).toBe('invalid-constitutional-reference')
     repo.close()
@@ -230,6 +271,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     await createEmptyOffice(dir)
     await applyGenesisFromDir(dir)
     const repo = openRepoFromOffice(dir)
+    seedReadAccessLaw(repo)
     const app = buildGateway(repo, new ReliableChannel(), THREE_IMPERIAL, { lawMode: 'strict' })
 
     const addPetitionTi = await submit(
@@ -240,7 +282,9 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title', 'routing'] },
       }),
     )
-    expect(addPetitionTi.status).toBe(201)
+    expect(addPetitionTi.status).toBe(202)
+    const addPetitionTiId = (await addPetitionTi.json() as { id: string }).id
+    await waitForState(app, addPetitionTiId, 'archived')
 
     const protocolTwo = baseMessage('edict', {
       law_type: 'protocol',
@@ -249,15 +293,16 @@ describe('Wenyan v0.3.0 rituals', () => {
       precedence: 10,
       effective_date: '2026-01-01T00:00:00.000Z',
     })
-    expect((await submit(app, protocolTwo)).status).toBe(201)
+    const protocolTwoRes = await submit(app, protocolTwo)
+    expect(protocolTwoRes.status).toBe(202)
+    await waitForState(app, protocolTwo.id, 'archived')
 
     const msgA = baseMessage('petition', {
       title: 'A',
       routing: { destination: ['office-a', 'office-b'] },
     })
-    expect((await submit(app, msgA)).status).toBe(201)
-    const aState = await app.request(`/messages/${msgA.id}`)
-    const aJson = await aState.json() as { state: string; transitions: Array<{ reason?: string }> }
+    expect((await submit(app, msgA)).status).toBe(202)
+    const aJson = await waitForState(app, msgA.id, 'pending')
     expect(aJson.state).toBe('pending')
     expect(aJson.transitions.at(-1)?.reason).toBe('awaiting-protocol-acks-2')
 
@@ -269,15 +314,16 @@ describe('Wenyan v0.3.0 rituals', () => {
       effective_date: '2026-01-01T00:00:01.000Z',
       superseded_edict_id: protocolTwo.id,
     })
-    expect((await submit(app, protocolOne)).status).toBe(201)
+    const protocolOneRes = await submit(app, protocolOne)
+    expect(protocolOneRes.status).toBe(202)
+    await waitForState(app, protocolOne.id, 'archived')
 
     const msgB = baseMessage('petition', {
       title: 'B',
       routing: { destination: ['office-a', 'office-b'] },
     })
-    expect((await submit(app, msgB)).status).toBe(201)
-    const bState = await app.request(`/messages/${msgB.id}`)
-    const bJson = await bState.json() as { state: string }
+    expect((await submit(app, msgB)).status).toBe(202)
+    const bJson = await waitForState(app, msgB.id, 'archived')
     expect(bJson.state).toBe('archived')
     repo.close()
   })

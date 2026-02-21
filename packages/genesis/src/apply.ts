@@ -56,6 +56,13 @@ upstream = "${upstream}"
 host = "${config.gateway.listen.host}"
 port = ${config.gateway.listen.port}
 
+[auth]
+jwt_issuer = "${config.auth.jwt_issuer}"
+jwt_audience = "${config.auth.jwt_audience}"
+jwt_alg = "${config.auth.jwt_alg}"
+jwt_secret = "${config.auth.jwt_secret}"
+allow_header_actor = ${config.auth.allow_header_actor ? 'true' : 'false'}
+
 [law]
 mode = "${mode}"
 
@@ -85,6 +92,13 @@ function defaultConfig(): BootstrapConfig {
         host: '127.0.0.1',
         port: 8787,
       },
+    },
+    auth: {
+      jwt_issuer: 'wenyan.local',
+      jwt_audience: 'wenyan-gateway',
+      jwt_alg: 'HS256',
+      jwt_secret: randomBytes(32).toString('hex'),
+      allow_header_actor: false,
     },
     law: {
       mode: 'strict',

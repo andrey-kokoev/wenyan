@@ -5,6 +5,7 @@ import { buildGateway } from '../../gateway/src/index'
 import { SqliteArchiveRepository } from '../../archive/src/sqlite'
 import { ReliableChannel } from '../../channel/src/index'
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
+import { waitForReplayEvent, waitForState } from './helpers'
 
 const tempFiles = new Set<string>()
 
@@ -96,6 +97,23 @@ function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
     submittedAt: now,
     metadata: seedMeta,
   })
+  archiveSeed(repo, {
+    id: `edict-access-control-${Date.now()}`,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+      },
+      precedence: 0,
+      effective_date: now,
+    },
+    actor: seedActor,
+    submittedAt: now,
+    metadata: seedMeta,
+  })
   for (const genre of genres) {
     archiveSeed(repo, {
       id: `ti-${genre}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -127,10 +145,9 @@ describe('Ritual 8: Secret Memorial (Mifeng)', () => {
       }),
     })
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(202)
     const body = await res.json() as { id: string }
-    const status = await (await app.request(`/messages/${body.id}`)).json() as { message: { payload: { blob: string } }; seals: unknown[] }
-
+    const status = await waitForState(app, body.id, 'archived')
     expect(status.message.payload.blob).toBe(ciphertext)
     expect(status.seals).toHaveLength(6)
     repo.close()
@@ -155,7 +172,9 @@ describe('Ritual 9: Joint Memorial (Huiti)', () => {
         metadata: {},
       }),
     })
-    expect(submit.status).toBe(201)
+    expect(submit.status).toBe(202)
+
+    await waitForState(app, id, 'pending')
 
     const a = await app.request(`/messages/${id}/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ office: 'office_a' }) })
     expect(a.status).toBe(200)
@@ -193,9 +212,10 @@ describe('Ritual 10: Imperial Audience (Streaming)', () => {
     })
 
     const stream = await app.request('/stream')
-    const body = await stream.json() as { events: Array<{ messageId: string; at: string }> }
-    const found = body.events.find((e) => e.messageId === id)
-    expect(found).toBeTruthy()
+    expect(stream.headers.get('content-type')).toContain('text/event-stream')
+    const replay = await app.request('/stream/replay')
+    const found = await waitForReplayEvent(app, id)
+    expect(found.messageId).toBe(id)
     expect(Date.now() - start).toBeLessThan(1000)
 
     repo.close()
@@ -220,7 +240,7 @@ describe('Ritual 11: Return to Sender (Bohui)', () => {
         metadata: {},
       }),
     })
-    expect(bad.status).toBe(201)
+    expect(bad.status).toBe(202)
 
     const v2Id = `${baseId}-v2`
     const good = await app.request('/messages', {
@@ -235,14 +255,12 @@ describe('Ritual 11: Return to Sender (Bohui)', () => {
         metadata: { revisionOf: baseId },
       }),
     })
-    expect(good.status).toBe(201)
+    expect(good.status).toBe(202)
 
-    const first = await (await app.request(`/messages/${baseId}`)).json() as { state: string; transitions: Array<{ reason?: string }> }
-    const second = await (await app.request(`/messages/${v2Id}`)).json() as { state: string }
+    const first = await waitForState(app, baseId, 'rejected')
+    const second = await waitForState(app, v2Id, 'archived')
 
-    expect(first.state).toBe('rejected')
     expect(first.transitions.some((t) => t.reason === 'empty-payload')).toBe(true)
-    expect(second.state).toBe('archived')
 
     repo.close()
   })
@@ -266,8 +284,9 @@ describe('Ritual 14: Censorate Circulation (Kechao)', () => {
         metadata: {},
       }),
     })
-    expect(submit.status).toBe(201)
+    expect(submit.status).toBe(202)
 
+    await waitForState(app, id, 'pending')
     await app.request(`/messages/${id}/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ office: 'ministry_a' }) })
     const final = await app.request(`/messages/${id}/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ office: 'ministry_b' }) })
     const finalBody = await final.json() as { state: string }
@@ -310,8 +329,8 @@ describe('Ritual 16: Errata Slip (Gaiding)', () => {
       }),
     })
 
-    const original = await (await app.request(`/messages/${originalId}`)).json() as { message: { payload: Record<string, unknown> } }
-    const amendment = await (await app.request(`/messages/${amendmentId}`)).json() as { message: { metadata?: Record<string, unknown> } }
+    const original = await waitForState(app, originalId, 'archived')
+    const amendment = await waitForState(app, amendmentId, 'archived')
 
     expect(original.message.payload.recipient).toBe('wrong-ministry')
     expect(amendment.message.metadata?.supersedes).toBe(originalId)

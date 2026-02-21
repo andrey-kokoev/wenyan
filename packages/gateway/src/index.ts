@@ -12,7 +12,7 @@ import {
   type EdictLawType,
   type LawMode,
 } from '@wenyan/core'
-import { DEV_SEAL_CONTEXT, InsufficientImperialAuthorityError, type SealContext } from '@wenyan/seal'
+import { InsufficientImperialAuthorityError, type SealContext } from '@wenyan/seal'
 import {
   LawResolver,
   SealInvalidError,
@@ -88,10 +88,22 @@ export interface GatewayRuntimeOptions {
   onLawEvent?: (event: LawResolverEvent) => void
   lawResolver?: LawResolver
   onMeshJoin?: (peer: string) => Promise<{ ok: boolean; detail?: string }> | { ok: boolean; detail?: string }
-  onMeshSync?: (peer: string, fromCursor: string, limit: number) => Promise<{ ok: boolean; fetched: number }> | { ok: boolean; fetched: number }
+  onMeshSync?: (
+    peer: string,
+    fromCursor: string,
+    limit: number,
+  ) => Promise<{ ok: boolean; fetched: number; error?: string }> | { ok: boolean; fetched: number; error?: string }
   meshMembers?: () => Array<{ nodeId: string; address: string; state: string }>
   meshPartitioned?: () => boolean
   onSealGossip?: (messageId: string, sealSeq: number) => void | Promise<void>
+  workerPollIntervalMs?: number
+  auth?: {
+    jwtIssuer?: string
+    jwtAudience?: string
+    jwtAlg?: 'HS256'
+    jwtSecret?: string
+    allowHeaderActor?: boolean
+  }
 }
 
 async function validateByArchivedTi(
@@ -201,15 +213,105 @@ interface ReadActor {
   role: string
 }
 
-function actorFromHeaders(headers: Headers): ReadActor | undefined {
-  const actorId = headers.get('x-wenyan-actor-id') ?? undefined
-  const actorRole = headers.get('x-wenyan-actor-role') ?? 'genesis_admin'
-  if (actorId) return { id: actorId, role: actorRole }
+interface GatewayAuthConfig {
+  jwtIssuer: string
+  jwtAudience: string
+  jwtAlg: 'HS256'
+  jwtSecret?: string
+  allowHeaderActor: boolean
+}
+
+function decodeBase64Url(input: string): Uint8Array {
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+  if (typeof Buffer !== 'undefined') return new Uint8Array(Buffer.from(padded, 'base64'))
+  const bin = atob(padded)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+function decodeJsonBase64Url(input: string): Record<string, unknown> | undefined {
+  try {
+    const bytes = decodeBase64Url(input)
+    const text = typeof TextDecoder !== 'undefined'
+      ? new TextDecoder().decode(bytes)
+      : String.fromCharCode(...bytes)
+    return JSON.parse(text) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+}
+
+function timingSafeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i]
+  return diff === 0
+}
+
+async function verifyJwtHs256(
+  token: string,
+  secret: string,
+): Promise<{ ok: true; claims: Record<string, unknown> } | { ok: false }> {
+  const parts = token.split('.')
+  if (parts.length !== 3) return { ok: false }
+  const [headEnc, bodyEnc, sigEnc] = parts
+  const header = decodeJsonBase64Url(headEnc)
+  const claims = decodeJsonBase64Url(bodyEnc)
+  if (!header || !claims) return { ok: false }
+  if (header.alg !== 'HS256' || header.typ !== 'JWT') return { ok: false }
+  if (typeof crypto === 'undefined' || !crypto.subtle) return { ok: false }
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const signature = new Uint8Array(
+    await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${headEnc}.${bodyEnc}`)),
+  )
+  const provided = decodeBase64Url(sigEnc)
+  if (!timingSafeEqualBytes(signature, provided)) return { ok: false }
+  return { ok: true, claims }
+}
+
+async function actorFromHeaders(
+  headers: Headers,
+  authConfig: GatewayAuthConfig,
+): Promise<{ actor?: ReadActor; reason?: string }> {
+  const headerActorId = headers.get('x-wenyan-actor-id') ?? undefined
+  const headerActorRole = headers.get('x-wenyan-actor-role') ?? undefined
+  const isTestMode =
+    (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') ||
+    (typeof process !== 'undefined' && process.env.WENYAN_ALLOW_HEADER_ACTOR === 'true')
+  if (authConfig.allowHeaderActor && isTestMode && headerActorId && headerActorRole) {
+    return { actor: { id: headerActorId, role: headerActorRole } }
+  }
   const auth = headers.get('authorization')
-  if (!auth?.startsWith('Bearer ')) return undefined
+  if (!auth?.startsWith('Bearer ')) return { reason: 'read-unauthenticated' }
   const token = auth.slice('Bearer '.length).trim()
-  if (!token) return undefined
-  return { id: token, role: actorRole }
+  if (!token) return { reason: 'read-unauthenticated' }
+  if (authConfig.jwtAlg !== 'HS256' || !authConfig.jwtSecret) {
+    return { reason: 'auth-config-invalid' }
+  }
+  const verified = await verifyJwtHs256(token, authConfig.jwtSecret)
+  if (!verified.ok) return { reason: 'read-unauthenticated' }
+  const claims = verified.claims
+  if (claims.iss !== authConfig.jwtIssuer || claims.aud !== authConfig.jwtAudience) {
+    return { reason: 'read-unauthenticated' }
+  }
+  const now = Math.floor(Date.now() / 1000)
+  const iat = typeof claims.iat === 'number' ? claims.iat : undefined
+  const exp = typeof claims.exp === 'number' ? claims.exp : undefined
+  if (iat === undefined || iat > now + 30 || (exp !== undefined && exp < now)) {
+    return { reason: 'read-unauthenticated' }
+  }
+  if (typeof claims.sub !== 'string' || typeof claims.role !== 'string') {
+    return { reason: 'read-unauthenticated' }
+  }
+  return { actor: { id: claims.sub, role: claims.role } }
 }
 
 async function checkReadAccess(
@@ -229,12 +331,10 @@ async function checkReadAccess(
   })
 
   if (!law.ok) {
-    // Maintain pre-0.6 compatibility when no access law exists.
-    if (law.error === 'law-missing-access-control') return { allowed: true }
     return { allowed: false, reason: law.error }
   }
   if (!law.content) {
-    return { allowed: true }
+    return { allowed: false, reason: 'law-missing-access-control' }
   }
   if (!actor) {
     return law.content.anonymous_read ? { allowed: true } : { allowed: false, reason: 'read-unauthenticated' }
@@ -248,7 +348,7 @@ async function checkReadAccess(
 export function buildGateway(
   repoFactory: RepoFactory,
   channel: ChannelLike,
-  sealContext: SealContext = DEV_SEAL_CONTEXT,
+  sealContextInput: SealContext | (() => SealContext),
   options: GatewayRuntimeOptions = {},
 ) {
   const app = new Hono()
@@ -260,9 +360,22 @@ export function buildGateway(
   let runtimeCheckpoint: CheckpointService | undefined
   let runtimeAnomaly: AnomalyDetector | undefined
   let runtimeEmergency: EmergencyRouter | undefined
+  let workerInterval: ReturnType<typeof setInterval> | undefined
+  let workerRunning = false
   const recentSeal6ByActor = new Map<string, number[]>()
   const quarantinedActors = new Set<string>()
   let constitutionalAmendmentInProgress = false
+  const authConfig: GatewayAuthConfig = {
+    jwtIssuer: options.auth?.jwtIssuer ?? 'wenyan.local',
+    jwtAudience: options.auth?.jwtAudience ?? 'wenyan-gateway',
+    jwtAlg: options.auth?.jwtAlg ?? 'HS256',
+    jwtSecret: options.auth?.jwtSecret ?? 'wenyan-local-jwt-secret',
+    allowHeaderActor: options.auth?.allowHeaderActor ?? false,
+  }
+
+  function currentSealContext(): SealContext {
+    return typeof sealContextInput === 'function' ? sealContextInput() : sealContextInput
+  }
 
   async function resolveRuntime(): Promise<{
     repo: ArchiveRepository
@@ -297,6 +410,12 @@ export function buildGateway(
       runtimeAnomaly = new AnomalyDetector(repo)
       runtimeEmergency = new EmergencyRouter(repo)
       await runtimeResolver.preload()
+      if (!workerInterval) {
+        const pollMs = Math.max(50, options.workerPollIntervalMs ?? 250)
+        workerInterval = setInterval(() => {
+          void processDocketLoop()
+        }, pollMs)
+      }
     }
     return {
       repo,
@@ -307,6 +426,113 @@ export function buildGateway(
       checkpoint: runtimeCheckpoint!,
       anomaly: runtimeAnomaly!,
       emergency: runtimeEmergency!,
+    }
+  }
+
+  async function processDocketLoop(): Promise<void> {
+    if (workerRunning) return
+    workerRunning = true
+    try {
+      const { repo, resolver, tiResolver, anomaly } = await resolveRuntime()
+      while (true) {
+        const item = await repo.dequeueDocket(new Date().toISOString())
+        if (!item) break
+        let result: { messageId: string; finalState: 'pending' | 'authorized' | 'rejected' | 'archived'; reason?: string }
+        try {
+          result = await processDocketMessage(repo, item.messageId, currentSealContext(), {
+            lawResolver: resolver,
+            lawMode: options.lawMode ?? 'strict',
+            distributedMode: options.distributedMode ?? 'single',
+            consensusKind: options.consensusKind ?? 'none',
+            pbftConsensus: options.pbftConsensus,
+            nodeId: options.nodeId,
+            lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
+            lawPreloadTypes: options.lawPreloadTypes,
+            onLawEvent: options.onLawEvent,
+          })
+        } catch (error) {
+          const reason =
+            error instanceof InsufficientImperialAuthorityError
+              ? 'insufficient-imperial-authority'
+              : error instanceof SealInvalidError
+                ? 'invalid-seal-chain'
+                : error instanceof Error && error.message
+                  ? error.message
+                  : 'processing-error'
+          const nowIso = new Date().toISOString()
+          const fromState = (await repo.snapshotState(item.messageId)) ?? 'pending'
+          const transitions = await repo.getTransitions(item.messageId)
+          if (fromState !== 'rejected') {
+            await repo.appendTransition({
+              messageId: item.messageId,
+              fromState,
+              toState: 'rejected',
+              sequenceNo: transitions.length + 1,
+              actorId: 'gateway-worker',
+              sealedAt: nowIso,
+              at: nowIso,
+              prevTransitionHash: transitions.length > 0 ? transitions[transitions.length - 1].prevTransitionHash : 'GENESIS',
+              reason,
+            })
+          }
+          result = { messageId: item.messageId, finalState: 'rejected', reason }
+        }
+        const processed = await repo.getMessage(item.messageId)
+        if (processed && item.messageId === processed.id && processed.genre === 'blueprint_change') {
+          constitutionalAmendmentInProgress = result.finalState === 'pending'
+        }
+        if (processed && result.finalState === 'archived' && processed.genre === 'ti_definition') {
+          const nowMs = Date.now()
+          const actorId = processed.actor.id
+          const samples = (recentSeal6ByActor.get(actorId) ?? []).filter((ts) => nowMs - ts < 60_000)
+          samples.push(nowMs)
+          recentSeal6ByActor.set(actorId, samples)
+          const velocity = await anomaly.detectVelocity(
+            samples.map((ts) => ({ actorId, timestampIso: new Date(ts).toISOString() })),
+            10,
+          )
+          if (velocity?.action_taken === 'quarantine') {
+            quarantinedActors.add(actorId)
+          }
+          const payload = processed.payload as Record<string, unknown>
+          const targetGenre = typeof payload.target_genre === 'string' ? payload.target_genre : undefined
+          tiResolver.invalidate(targetGenre)
+        }
+        if (processed && processed.genre === 'edict' && result.finalState === 'archived') {
+          const payload = processed.payload as Record<string, unknown>
+          const lawType = typeof payload.law_type === 'string' ? payload.law_type : undefined
+          const knownLawTypes = new Set([
+            'appointment',
+            'classification',
+            'routing',
+            'admission',
+            'protocol',
+            'regulation',
+            'access_control',
+            'detection_rule',
+          ])
+          resolver.invalidate(knownLawTypes.has(String(lawType)) ? (lawType as EdictLawType) : undefined)
+        }
+        if ((options.distributedMode ?? 'single') === 'consort') {
+          await options.onSealGossip?.(item.messageId, 5)
+          if (result.finalState === 'archived') await options.onSealGossip?.(item.messageId, 6)
+        }
+        const transitions = await repo.getTransitions(item.messageId)
+        const last = transitions[transitions.length - 1]
+        if (last) {
+          channel.publish({
+            id: `${item.messageId}:${last.sequenceNo}`,
+            type: result.finalState === 'rejected' ? 'message.rejected' : 'archive.appended',
+            messageId: item.messageId,
+            payload: { result },
+            at: new Date().toISOString(),
+          })
+        }
+      }
+    } catch {
+      // Background loop retries on next tick.
+    } finally {
+      workerRunning = false
     }
   }
 
@@ -411,6 +637,7 @@ export function buildGateway(
 
       await repo.appendMessage(message)
       await repo.enqueueDocket(message.id)
+      void processDocketLoop()
 
       if (message.genre === 'safety_incident') {
         await emergency.routeSafetyIncident({
@@ -421,76 +648,6 @@ export function buildGateway(
         })
       }
 
-      const item = await repo.dequeueDocket(new Date().toISOString())
-      if (item) {
-        const result = await processDocketMessage(repo, item.messageId, sealContext, {
-          lawResolver: resolver,
-          lawMode: options.lawMode ?? 'strict',
-          distributedMode: options.distributedMode ?? 'single',
-          consensusKind: options.consensusKind ?? 'none',
-          pbftConsensus: options.pbftConsensus,
-          nodeId: options.nodeId,
-          lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
-          lawPreloadTypes: options.lawPreloadTypes,
-          onLawEvent: options.onLawEvent,
-        })
-        if (result.finalState === 'rejected' && result.reason === 'invalid-constitutional-reference') {
-          return c.json({ error: 'Invalid Constitutional Reference', reason: result.reason }, 422)
-        }
-        if (item.messageId === message.id && message.genre === 'blueprint_change') {
-          constitutionalAmendmentInProgress = result.finalState === 'pending'
-        }
-        if (result.finalState === 'archived' && message.genre === 'ti_definition') {
-          const nowMs = Date.now()
-          const actorId = message.actor.id
-          const samples = (recentSeal6ByActor.get(actorId) ?? []).filter((ts) => nowMs - ts < 60_000)
-          samples.push(nowMs)
-          recentSeal6ByActor.set(actorId, samples)
-          const velocity = await anomaly.detectVelocity(
-            samples.map((ts) => ({ actorId, timestampIso: new Date(ts).toISOString() })),
-            10,
-          )
-          if (velocity?.action_taken === 'quarantine') {
-            quarantinedActors.add(actorId)
-          }
-        }
-        if (message.genre === 'ti_definition' && result.finalState === 'archived') {
-          const payload = message.payload as Record<string, unknown>
-          const targetGenre = typeof payload.target_genre === 'string' ? payload.target_genre : undefined
-          tiResolver.invalidate(targetGenre)
-        }
-        if (message.genre === 'edict' && result.finalState === 'archived') {
-          const payload = message.payload as Record<string, unknown>
-          const lawType = typeof payload.law_type === 'string' ? payload.law_type : undefined
-          const knownLawTypes = new Set([
-            'appointment',
-            'classification',
-            'routing',
-            'admission',
-            'protocol',
-            'regulation',
-            'access_control',
-            'detection_rule',
-          ])
-          resolver.invalidate(knownLawTypes.has(String(lawType)) ? (lawType as EdictLawType) : undefined)
-        }
-        if ((options.distributedMode ?? 'single') === 'consort') {
-          await options.onSealGossip?.(item.messageId, 5)
-          if (result.finalState === 'archived') {
-            await options.onSealGossip?.(item.messageId, 6)
-          }
-        }
-        const transitions = await repo.getTransitions(item.messageId)
-        const last = transitions[transitions.length - 1]
-        channel.publish({
-          id: `${item.messageId}:${last.sequenceNo}`,
-          type: result.finalState === 'rejected' ? 'message.rejected' : 'archive.appended',
-          messageId: item.messageId,
-          payload: { result },
-          at: new Date().toISOString(),
-        })
-      }
-
       const response = { id: message.id, acceptedAt: nowIso }
       if (idempotencyKey) {
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
@@ -498,7 +655,7 @@ export function buildGateway(
       }
 
       c.header('location', `/api/wenyan/messages/${message.id}`)
-      return c.json(response, 201)
+      return c.json(response, 202)
     } catch (error) {
       if (isZodLikeError(error)) {
         return c.json({ error: 'invalid-payload', issues: error.issues }, 400)
@@ -555,7 +712,7 @@ export function buildGateway(
     }
 
     try {
-      const result = await finalizePendingMessage(repo, id, sealContext, {
+      const result = await finalizePendingMessage(repo, id, currentSealContext(), {
         lawResolver: resolver,
         lawMode: options.lawMode ?? 'strict',
         distributedMode: options.distributedMode ?? 'single',
@@ -609,7 +766,8 @@ export function buildGateway(
       if (!message) {
         return c.json({ error: 'not-found' }, 404)
       }
-      const actor = actorFromHeaders(c.req.raw.headers)
+      const auth = await actorFromHeaders(c.req.raw.headers, authConfig)
+      const actor = auth.actor
       const access = await checkReadAccess(resolver, actor, message.genre)
       if (!access.allowed) {
         await audit.createReadReceipt({
@@ -619,11 +777,11 @@ export function buildGateway(
           queryParameters: { id },
           result: { denied: true },
           resultStatus: 'denied',
-          reason: access.reason ?? 'read-forbidden',
+          reason: access.reason ?? auth.reason ?? 'read-forbidden',
           traceId: tracer.currentTrace()?.traceId,
           nodeId: options.nodeId,
         })
-        return c.json({ error: 'forbidden', reason: access.reason ?? 'read-forbidden' }, 403)
+        return c.json({ error: 'forbidden', reason: access.reason ?? auth.reason ?? 'read-forbidden' }, 403)
       }
       const payload = {
         message,
@@ -653,7 +811,8 @@ export function buildGateway(
     return (async () => {
       const state = c.req.query('state')
       const genre = c.req.query('genre')
-      const actor = actorFromHeaders(c.req.raw.headers)
+      const auth = await actorFromHeaders(c.req.raw.headers, authConfig)
+      const actor = auth.actor
       const { repo, resolver, audit, tracer } = await runtimePromise
       if (!state) {
         return c.json({ error: 'state-query-required' }, 400)
@@ -667,11 +826,11 @@ export function buildGateway(
             queryParameters: { state, genre },
             result: { denied: true },
             resultStatus: 'denied',
-            reason: access.reason ?? 'read-forbidden',
+            reason: access.reason ?? auth.reason ?? 'read-forbidden',
             traceId: tracer.currentTrace()?.traceId,
             nodeId: options.nodeId,
           })
-          return c.json({ error: 'forbidden', reason: access.reason ?? 'read-forbidden' }, 403)
+          return c.json({ error: 'forbidden', reason: access.reason ?? auth.reason ?? 'read-forbidden' }, 403)
         }
       }
       await audit.createReadReceipt({
@@ -689,6 +848,44 @@ export function buildGateway(
 
   app.get('/stream', (c) => {
     const since = c.req.query('since') ?? new Date(Date.now() - 60_000).toISOString()
+    const encoder = new TextEncoder()
+    let unsubscribe: (() => void) | undefined
+    let keepalive: ReturnType<typeof setInterval> | undefined
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (event: ChannelEvent): void => {
+          controller.enqueue(
+            encoder.encode(`id: ${event.id}\nevent: transition\ndata: ${JSON.stringify(event)}\n\n`),
+          )
+        }
+        for (const event of channel.replay(since)) send(event)
+        unsubscribe = channel.subscribe(send)
+        keepalive = setInterval(() => {
+          controller.enqueue(encoder.encode(': keepalive\n\n'))
+        }, 15_000)
+        const signal = c.req.raw.signal
+        signal?.addEventListener('abort', () => {
+          if (keepalive) clearInterval(keepalive)
+          if (unsubscribe) unsubscribe()
+          controller.close()
+        })
+      },
+      cancel() {
+        if (keepalive) clearInterval(keepalive)
+        if (unsubscribe) unsubscribe()
+      },
+    })
+    return new Response(stream, {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      },
+    })
+  })
+
+  app.get('/stream/replay', (c) => {
+    const since = c.req.query('since') ?? new Date(Date.now() - 60_000).toISOString()
     return c.json({ events: channel.replay(since) })
   })
 
@@ -703,6 +900,9 @@ export function buildGateway(
   })
 
   app.get('/mesh/merkle-root', (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     const runtimePromise = resolveRuntime()
     return (async () => {
       const { repo } = await runtimePromise
@@ -712,6 +912,9 @@ export function buildGateway(
   })
 
   app.get('/mesh/status', (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     return c.json({
       mode: options.distributedMode ?? 'single',
       partitioned: options.meshPartitioned?.() ?? false,
@@ -720,6 +923,9 @@ export function buildGateway(
   })
 
   app.post('/mesh/join', async (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     const body = (await c.req.json()) as { peer?: string }
     if (!body.peer) return c.json({ error: 'peer-required' }, 400)
     if (!options.onMeshJoin) return c.json({ error: 'mesh-not-configured' }, 503)
@@ -728,6 +934,9 @@ export function buildGateway(
   })
 
   app.post('/mesh/sync', async (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     const runtimePromise = resolveRuntime()
     const body = (await c.req.json()) as { peer?: string; fromCursor?: string; limit?: number }
     if (!body.peer) return c.json({ error: 'peer-required' }, 400)

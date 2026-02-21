@@ -13,6 +13,7 @@ import type { AdapterContext, BridgeAdapter, ForeignMetadata, FromWenyan, IntoWe
 import { parseBootstrapConfig } from '../../core/src/bootstrap'
 import type { MessageEnvelope } from '../../core/src/index'
 import type { NatsBridgeAdapterConfig } from '../../core/src/bootstrap'
+import { waitForState } from './helpers'
 
 const tempDirs = new Set<string>()
 
@@ -107,6 +108,35 @@ async function setupOffice(name: string): Promise<{ repo: SqliteArchiveRepositor
   const repo = new SqliteArchiveRepository(resolve(dir, "wenyan.dang'an"))
   repo.initialize()
   repo.migrate()
+  const seedId = `ac-bridge-${Date.now()}`
+  repo.appendMessage({
+    id: seedId,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+        query_hash_only: true,
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: seedId,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
   const app = buildGateway(repo, new ReliableChannel(), { ...DEV_SEAL_CONTEXT, imperialSignatures: ['a', 'b', 'c'] }, { lawMode: 'strict' })
   return { repo, app, dir }
 }
@@ -170,9 +200,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
       },
     )
 
-    const archived = await app.request('/messages/seq-42')
-    const json = await archived.json() as { message: MessageEnvelope; seals: unknown[] }
-    expect(archived.status).toBe(200)
+    const json = await waitForState(app, 'seq-42', 'archived') as unknown as { message: MessageEnvelope; seals: unknown[] }
     expect(json.seals).toHaveLength(6)
     expect((json.message.metadata as Record<string, unknown>).foreign_headers).toBeUndefined()
 
@@ -224,7 +252,8 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
         metadata: { routing: { foreign_system: 'nats' } },
       }),
     })
-    expect(submitRes.status).toBe(201)
+    expect(submitRes.status).toBe(202)
+    await waitForState(app, 'edict-outbound-1', 'archived')
 
     const sync = await bridge.syncOnce('nats-main')
     expect(sync.pushed).toBeGreaterThanOrEqual(1)

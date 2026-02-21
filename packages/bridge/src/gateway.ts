@@ -1,6 +1,7 @@
 import type { ArchiveRepository } from '@wenyan/archive'
 import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
 import type { BootstrapConfig, BridgeAdapterConfig, BridgeProtocol, MessageEnvelope } from '@wenyan/core'
+import { createHmac } from 'node:crypto'
 import { KafkaBridgeAdapter } from './adapters/kafka'
 import { MqttBridgeAdapter } from './adapters/mqtt'
 import { NatsBridgeAdapter } from './adapters/nats'
@@ -27,6 +28,14 @@ export interface BridgeGatewayOptions {
 
 function nowIso(): string {
   return new Date().toISOString()
+}
+
+function encodeBase64Url(value: string): string {
+  return Buffer.from(value, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
 }
 
 function defaultApiBaseUrl(config: BootstrapConfig): string {
@@ -91,6 +100,7 @@ export class BridgeGateway {
   private readonly config: BootstrapConfig
   private readonly apiBaseUrl: string
   private readonly adapters: BridgeAdapter[]
+  private readonly authHeader: string
   private pollTimer: NodeJS.Timeout | undefined
   private lastStreamAt = new Date(0).toISOString()
   private readonly breaker = new Map<string, BreakerState>()
@@ -105,6 +115,7 @@ export class BridgeGateway {
     this.apiBaseUrl = options.apiBaseUrl ?? defaultApiBaseUrl(options.bootstrap)
     this.archive = options.archive ?? this.createArchiveFromBootstrap(this.config)
     this.adapters = options.adapters ?? this.config.bridge.adapters.map((cfg) => this.createAdapter(cfg))
+    this.authHeader = `Bearer ${this.createBridgeToken()}`
   }
 
   async start(): Promise<void> {
@@ -329,7 +340,7 @@ export class BridgeGateway {
 
   private async captureOutboundEvents(): Promise<void> {
     try {
-      const res = await fetch(`${this.apiBaseUrl}/stream?since=${encodeURIComponent(this.lastStreamAt)}`)
+      const res = await fetch(`${this.apiBaseUrl}/stream/replay?since=${encodeURIComponent(this.lastStreamAt)}`)
       if (!res.ok) return
       const body = (await res.json()) as { events?: Array<{ at: string; type: string; messageId: string }> }
       const events = body.events ?? []
@@ -352,12 +363,42 @@ export class BridgeGateway {
   private async fetchMessage(id: string): Promise<MessageEnvelope | undefined> {
     try {
       const res = await fetch(`${this.apiBaseUrl}/messages/${id}`)
-      if (!res.ok) return undefined
+      if (!res.ok) {
+        const retry = await fetch(`${this.apiBaseUrl}/messages/${id}`, {
+          headers: { authorization: this.authHeader },
+        })
+        if (!retry.ok) return undefined
+        const retryJson = (await retry.json()) as { message?: MessageEnvelope }
+        return retryJson.message
+      }
       const json = (await res.json()) as { message?: MessageEnvelope }
       return json.message
     } catch {
       return undefined
     }
+  }
+
+  private createBridgeToken(): string {
+    const now = Math.floor(Date.now() / 1000)
+    const header = encodeBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+    const payload = encodeBase64Url(
+      JSON.stringify({
+        iss: this.config.auth.jwt_issuer,
+        aud: this.config.auth.jwt_audience,
+        sub: 'wenyan-bridge',
+        role: 'genesis_admin',
+        iat: now,
+        exp: now + 3600,
+      }),
+    )
+    const secret = this.config.auth.jwt_secret
+    const sig = createHmac('sha256', secret)
+      .update(`${header}.${payload}`)
+      .digest('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '')
+    return `${header}.${payload}.${sig}`
   }
 
   private recordSuccess(adapterId: string): void {

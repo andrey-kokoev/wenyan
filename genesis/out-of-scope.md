@@ -2,6 +2,8 @@
 
 Out of Scope
 
+Hotfix note (v1.0.1): distributed consort and PBFT runtime paths are intentionally disabled until remediation is complete.
+
 Wenyan does not implement novel transport protocols. It operates over existing HTTP/WebSocket/TCP channels and only provides lightweight mesh membership/broadcast primitives for consort mode; congestion control and low-level network protocol innovation remain out of scope.
 
 Wenyan does not attempt a full general-purpose distributed database. PBFT-style constitutional consensus in consort mode is limited to `ti_definition` governance flow, with strict feature gating and explicit operator configuration.

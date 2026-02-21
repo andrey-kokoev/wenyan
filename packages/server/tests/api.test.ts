@@ -3,6 +3,8 @@ import { app } from '../src/index';
 
 const testEnv = {
   ENVIRONMENT: 'test',
+  WENYAN_GENESIS_KEY: 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=',
+  WENYAN_AUTH_JWT_SECRET: 'test-jwt-secret',
 } as const;
 
 function request(path: string, init?: RequestInit) {
@@ -16,7 +18,7 @@ describe('Wenyan Server API', () => {
     
     const json = await res.json();
     expect(json.message).toBe('Wenyan Server API');
-    expect(json.version).toBe('1.0.0');
+    expect(json.version).toBe('1.0.1');
   });
 
   it('should respond to health check', async () => {

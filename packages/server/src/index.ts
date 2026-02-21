@@ -12,15 +12,12 @@ import aiProvidersListHandler from './routes/ai/providers/index.get';
 import adminAiRoutes from './routes/admin/ai';
 import adminConfigRoutes from './routes/admin/config';
 import { createStorageAdapter, type StorageAdapter } from '@wenyan/archive/adapter';
-import { syncWithPeer } from '@wenyan/archive/sync';
 import { ReliableChannel } from '@wenyan/channel';
 import { parseBootstrapConfig, type EdictLawType, type LawMode } from '@wenyan/core';
 import { buildGateway, type GatewayRuntimeOptions } from '@wenyan/gateway';
 import { BridgeGateway } from '@wenyan/bridge';
-import { SwimMembership, InMemoryPlumtree, ImperialBroadcast } from '@wenyan/gossip';
-import { PbftConsensus } from '@wenyan/consensus';
-import { mergeEdict, type EdictLike } from '@wenyan/crdt';
-import { DEV_SEAL_CONTEXT } from '@wenyan/seal';
+import { type SealContext } from '@wenyan/seal';
+import { createHash } from 'node:crypto';
 
 // Import me/settings routes
 import meSettingsGetHandler from './routes/me/settings/index.get';
@@ -100,6 +97,14 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Math.floor(n);
 }
 
+function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined) return fallback
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') return false
+  return fallback
+}
+
 function parseLawPreload(raw: string | undefined): EdictLawType[] | undefined {
   if (!raw) return undefined;
   const values = raw
@@ -147,7 +152,6 @@ function recordSealLatency(seconds: number): void {
 }
 
 function renderMetricsText(): string {
-  wenyanMetrics.byzantineSuspicions = (wenyanMembership?.list() ?? []).filter((m) => m.state !== 'alive').length
   const latencies = wenyanMetrics.sealLatencySeconds
   const sorted = [...latencies].sort((a, b) => a - b)
   const counts = HISTOGRAM_BUCKETS.map((b) => sorted.filter((x) => x <= b).length)
@@ -188,6 +192,13 @@ function resolveBootstrap(env: Bindings) {
         port: parsePositiveInt(env.WENYAN_GATEWAY_PORT, 8787),
       },
       ...(env.WENYAN_UPSTREAM ? { upstream: env.WENYAN_UPSTREAM } : {}),
+    },
+    auth: {
+      jwt_issuer: env.WENYAN_AUTH_JWT_ISSUER ?? 'wenyan.local',
+      jwt_audience: env.WENYAN_AUTH_JWT_AUDIENCE ?? 'wenyan-gateway',
+      jwt_alg: 'HS256',
+      jwt_secret: env.WENYAN_AUTH_JWT_SECRET ?? 'wenyan-local-jwt-secret',
+      allow_header_actor: parseBoolean(env.WENYAN_AUTH_ALLOW_HEADER_ACTOR, false),
     },
     law: {
       mode: (env.WENYAN_LAW_MODE as LawMode | undefined) ?? 'strict',
@@ -247,14 +258,59 @@ function resolveStorageAdapter(kind: string | undefined, env: Bindings, sqlitePa
   return createStorageAdapter({ kind: 'sqlite', sqlitePath, retentionDays: 3650 });
 }
 
+function isPlaceholderGenesisKey(key: string): boolean {
+  const compact = key.replace(/=/g, '')
+  return /^A+$/.test(compact)
+}
+
+function decodeBase64(input: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(input, 'base64'))
+  }
+  const bin = atob(input)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+function buildSealContextFromBootstrap(bootstrap: ReturnType<typeof resolveBootstrap>, env: Bindings): SealContext {
+  if (isPlaceholderGenesisKey(bootstrap.genesis.genesis_key)) {
+    throw new Error('invalid genesis key: placeholder value is not allowed')
+  }
+  const keyBytes = decodeBase64(bootstrap.genesis.genesis_key)
+  if (keyBytes.length < 32) {
+    throw new Error('invalid genesis key: expected at least 32 bytes (base64 encoded)')
+  }
+  const privateKeyHex = Array.from(keyBytes.subarray(0, 32))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+  if (privateKeyHex === '1'.repeat(64) || privateKeyHex === '2'.repeat(64)) {
+    throw new Error('invalid genesis key: development placeholder key material is not allowed')
+  }
+  const capabilitySecret =
+    env.WENYAN_CAPABILITY_SECRET ??
+    createHash('sha256').update(`wenyan-capability:${bootstrap.genesis.genesis_key}`).digest('hex').slice(0, 32)
+
+  return {
+    draftPrivateKeyHex: privateKeyHex,
+    masterPrivateKeyHex: privateKeyHex,
+    capabilitySecret,
+    lamportClock: 1,
+    routeKey: `${bootstrap.distributed.node_id}.default.route`,
+    imperialSignatures: [bootstrap.distributed.node_id],
+    provenance: {
+      kind: 'agent',
+      service_account: bootstrap.distributed.node_id,
+      mtls_fingerprint: createHash('sha256').update(bootstrap.distributed.node_id).digest('hex').slice(0, 32),
+    },
+  }
+}
+
 let wenyanArchive: Awaited<ReturnType<StorageAdapter['createRepository']>> | undefined;
 let wenyanArchiveInit: Promise<void> | undefined
 const wenyanChannel = new ReliableChannel();
-let wenyanMembership: SwimMembership | undefined;
-let wenyanPlumtree: InMemoryPlumtree | undefined;
-let wenyanImperial: ImperialBroadcast | undefined;
-let wenyanPbft: PbftConsensus | undefined;
 let wenyanBridge: BridgeGateway | undefined;
+let wenyanSealContext: SealContext | undefined;
 const wenyanGatewayOptions: GatewayRuntimeOptions = {
   lawMode: 'strict',
   distributedMode: 'single',
@@ -267,7 +323,12 @@ const wenyanGateway = buildGateway(async () => {
     throw new Error('wenyan archive is not initialized');
   }
   return wenyanArchive;
-}, wenyanChannel, DEV_SEAL_CONTEXT, wenyanGatewayOptions);
+}, wenyanChannel, () => {
+  if (!wenyanSealContext) {
+    throw new Error('wenyan seal context is not initialized');
+  }
+  return wenyanSealContext;
+}, wenyanGatewayOptions);
 
 wenyanChannel.subscribe((event) => {
   if (event.type === 'archive.appended') {
@@ -297,72 +358,32 @@ app.use('*', async (c, next) => {
       wenyanGatewayOptions.nodeId = bootstrap.distributed.node_id;
       wenyanGatewayOptions.lawCacheTtlSeconds = bootstrap.law_cache?.ttl_seconds ?? 60;
       wenyanGatewayOptions.lawPreloadTypes = bootstrap.law_cache?.preload_types;
+      wenyanGatewayOptions.auth = {
+        jwtIssuer: bootstrap.auth.jwt_issuer,
+        jwtAudience: bootstrap.auth.jwt_audience,
+        jwtAlg: bootstrap.auth.jwt_alg,
+        jwtSecret: bootstrap.auth.jwt_secret,
+        allowHeaderActor: bootstrap.auth.allow_header_actor,
+      }
+      wenyanSealContext = buildSealContextFromBootstrap(bootstrap, c.env)
+
+      if (bootstrap.distributed.mode === 'consort') {
+        throw new Error('Feature Disabled: distributed consort is disabled in v1.0.1')
+      }
+      if (bootstrap.consensus.kind === 'pbft') {
+        throw new Error('Feature Disabled: PBFT is disabled in v1.0.1')
+      }
+
+      // Explicitly disable mesh hooks in hotfix runtime.
+      wenyanGatewayOptions.onMeshJoin = undefined
+      wenyanGatewayOptions.onMeshSync = undefined
+      wenyanGatewayOptions.onSealGossip = undefined
+      wenyanGatewayOptions.meshMembers = undefined
+      wenyanGatewayOptions.meshPartitioned = undefined
+      wenyanGatewayOptions.pbftConsensus = undefined
 
       const adapter = resolveStorageAdapter(bootstrap.archive.engine, c.env, bootstrap.archive.path);
       wenyanArchive = await adapter.createRepository();
-      if (bootstrap.distributed.mode === 'consort') {
-        wenyanMembership = new SwimMembership(bootstrap.distributed.suspicion_timeout_ms);
-        wenyanPlumtree = new InMemoryPlumtree(bootstrap.distributed.fanout);
-        wenyanImperial = new ImperialBroadcast();
-        for (const seed of bootstrap.distributed.seeds) {
-          wenyanMembership.upsert(seed, seed);
-        }
-        wenyanGatewayOptions.meshMembers = () => wenyanMembership?.list() ?? [];
-        wenyanGatewayOptions.meshPartitioned = () => wenyanMembership?.isPartitioned() ?? false;
-        wenyanMetrics.byzantineSuspicions = (wenyanMembership?.list() ?? []).filter((m) => m.state !== 'alive').length
-        wenyanGatewayOptions.onMeshJoin = async (peer) => {
-          wenyanMembership?.upsert(peer, peer);
-          return { ok: true, detail: `joined ${peer}` };
-        };
-        wenyanGatewayOptions.onSealGossip = async (messageId, sealSeq) => {
-          if (sealSeq < 6) {
-            wenyanPlumtree?.eagerPush({ id: `${messageId}:${sealSeq}`, topic: 'seal', payload: { messageId, sealSeq } });
-          } else {
-            wenyanImperial?.deliver({ id: `${messageId}:${sealSeq}`, topic: 'imperial', payload: { messageId, sealSeq } });
-          }
-        };
-        wenyanGatewayOptions.onMeshSync = async (peer, fromCursor, limit) => {
-          if (!wenyanArchive) return { ok: false, fetched: 0 };
-          const remoteBase = peer.replace(/^gossip:\/\//, 'http://').replace(/\/$/, '');
-          const result = await syncWithPeer(
-            wenyanArchive,
-            {
-              getMerkleRoot: async () => {
-                const res = await fetch(`${remoteBase}/api/wenyan/mesh/merkle-root`);
-                const json = await res.json() as { root: string };
-                return json.root;
-              },
-              getSyncRange: async (cursor, lim) => {
-                const res = await fetch(`${remoteBase}/api/wenyan/mesh/sync`, {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({ peer: 'local', fromCursor: cursor, limit: lim }),
-                });
-                if (!res.ok) return [];
-                const json = await res.json() as { transitions?: Array<Record<string, unknown>> };
-                return json.transitions ?? [];
-              },
-            },
-            { fromCursor, limit },
-          );
-          if (result.diverged) {
-            const a: EdictLike = { id: 'local', nodeId: bootstrap.distributed.node_id, precedence: 0, clock: { [bootstrap.distributed.node_id]: 1 }, payload: {} };
-            const b: EdictLike = { id: 'remote', nodeId: peer, precedence: 0, clock: { [peer]: 1 }, payload: {} };
-            mergeEdict(a, b);
-          }
-          return { ok: true, fetched: result.fetched };
-        };
-      }
-      if (bootstrap.consensus.kind === 'pbft') {
-        wenyanPbft = new PbftConsensus({
-          replicaSet: bootstrap.consensus.replica_set.length > 0
-            ? bootstrap.consensus.replica_set
-            : [bootstrap.distributed.node_id],
-          threshold: bootstrap.consensus.constitutional_threshold,
-          viewChangeTimeoutMs: bootstrap.consensus.view_change_timeout_ms,
-        });
-        wenyanGatewayOptions.pbftConsensus = wenyanPbft;
-      }
 
       if (bootstrap.bridge.enabled && bootstrap.bridge.mode === 'embedded') {
         const hasNodeRuntime = typeof process !== 'undefined' && !!process.versions?.node
@@ -406,7 +427,7 @@ app.route('/health', healthRoutes);
 app.get('/api', (c) => {
   return c.json({
     name: 'Wenyan API',
-    version: '1.0.0',
+    version: '1.0.1',
     environment: c.env.ENVIRONMENT,
     endpoints: {
       health: '/health',
@@ -530,7 +551,7 @@ app.patch('/api/themes/:id', themeUpdateHandler);
 app.get('*', async (c) => {
   return c.json({
     message: 'Wenyan Server API',
-    version: '1.0.0',
+    version: '1.0.1',
     environment: c.env.ENVIRONMENT,
     timestamp: new Date().toISOString(),
     note: 'UI removed. API-only runtime.',

@@ -2,7 +2,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { createHash } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { constitutionalMerkleRoot } from '@wenyan/channel'
 import { createEmptyOffice, applyGenesisFromDir } from '@wenyan/genesis'
 import { parseBootstrapConfigToml } from '@wenyan/core'
@@ -23,31 +23,63 @@ async function postMessage(input: string) {
 }
 
 async function status(id: string) {
-  const res = await fetch(`${baseUrl}/messages/${id}`)
+  const res = await fetch(`${baseUrl}/messages/${id}`, { headers: actorHeaders() })
   const json = await res.json()
   console.log(JSON.stringify(json, null, 2))
+}
+
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64url')
+}
+
+function issueLocalToken(actorId: string, actorRole: string): string {
+  const now = Math.floor(Date.now() / 1000)
+  const issuer = process.env.WENYAN_AUTH_JWT_ISSUER ?? 'wenyan.local'
+  const audience = process.env.WENYAN_AUTH_JWT_AUDIENCE ?? 'wenyan-gateway'
+  const secret = process.env.WENYAN_AUTH_JWT_SECRET ?? 'wenyan-local-jwt-secret'
+  const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = base64UrlEncode(
+    JSON.stringify({
+      sub: actorId,
+      role: actorRole,
+      iss: issuer,
+      aud: audience,
+      iat: now,
+      exp: now + 60 * 60,
+    }),
+  )
+  const signature = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url')
+  return `${header}.${payload}.${signature}`
 }
 
 function actorHeaders() {
   const actorId = process.env.WENYAN_ACTOR_ID ?? 'local-operator'
   const actorRole = process.env.WENYAN_ACTOR_ROLE ?? 'genesis_admin'
+  const token = process.env.WENYAN_TOKEN ?? issueLocalToken(actorId, actorRole)
   return {
-    'x-wenyan-actor-id': actorId,
-    'x-wenyan-actor-role': actorRole,
-    authorization: `Bearer ${actorId}`,
+    authorization: `Bearer ${token}`,
   }
 }
 
 async function query(state: string) {
-  const res = await fetch(`${baseUrl}/messages?state=${encodeURIComponent(state)}`)
+  const res = await fetch(`${baseUrl}/messages?state=${encodeURIComponent(state)}`, { headers: actorHeaders() })
   const json = await res.json()
   console.log(JSON.stringify(json, null, 2))
 }
 
 async function stream() {
-  const res = await fetch(`${baseUrl}/stream`)
-  const json = await res.json()
-  console.log(JSON.stringify(json, null, 2))
+  const res = await fetch(`${baseUrl}/stream`, { headers: actorHeaders() })
+  if (!res.body) {
+    console.log(await res.text())
+    return
+  }
+  const decoder = new TextDecoder()
+  const reader = res.body.getReader()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    process.stdout.write(decoder.decode(value, { stream: true }))
+  }
 }
 
 function parseWindow(input: string): string {
@@ -116,16 +148,36 @@ async function auditExport(args: string[]): Promise<void> {
 async function auditVerify(args: string[]): Promise<void> {
   const file = argValue('--file', args)
   if (!file) throw new Error('audit verify requires --file')
-  const payload = JSON.parse(await readFile(resolve(file), 'utf8')) as { checkpoint?: unknown; digest?: string }
+  const payload = JSON.parse(await readFile(resolve(file), 'utf8')) as {
+    checkpoint?: unknown
+    digest?: string
+    verification_scope?: string
+    cryptographic_completeness?: string
+  }
   const digest = createHash('sha256').update(JSON.stringify(payload.checkpoint ?? {})).digest('hex')
   const ok = digest === payload.digest
-  console.log(JSON.stringify({ ok, digest, expected: payload.digest }, null, 2))
+  console.log(
+    JSON.stringify(
+      {
+        ok,
+        digest,
+        expected: payload.digest,
+        verification_scope: payload.verification_scope ?? 'checkpoint-digest-only',
+        cryptographic_completeness: payload.cryptographic_completeness ?? 'partial',
+        note: 'audit verify validates checkpoint digest only; full bundle cryptographic verification is not part of v1.0.1',
+      },
+      null,
+      2,
+    ),
+  )
   if (!ok) process.exitCode = 1
 }
 
 async function token(args: string[]): Promise<void> {
   if (args.includes('--local')) {
-    console.log(process.env.WENYAN_ACTOR_ID ?? 'local-operator')
+    const actorId = process.env.WENYAN_ACTOR_ID ?? 'local-operator'
+    const actorRole = process.env.WENYAN_ACTOR_ROLE ?? 'genesis_admin'
+    console.log(issueLocalToken(actorId, actorRole))
     return
   }
   throw new Error('token supports only --local')

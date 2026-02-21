@@ -13,6 +13,7 @@ import { PbftConsensus } from '../../consensus/src/index'
 import { compareVectorClock, mergeEdict, resolveConcurrentEdict, type EdictLike } from '../../crdt/src/index'
 import { syncWithPeer } from '../../archive/src/sync'
 import type { MessageEnvelope } from '../../core/src/index'
+import { waitForState } from './helpers'
 
 const tempDirs = new Set<string>()
 const THREE_IMPERIAL = { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-1', 'sig-2', 'sig-3'] }
@@ -30,6 +31,37 @@ async function setupOffice(name: string): Promise<{ dir: string; repo: SqliteArc
   const repo = new SqliteArchiveRepository(resolve(dir, "wenyan.dang'an"))
   repo.initialize()
   repo.migrate()
+  const seedId = `edict-access-control-${randomUUID()}`
+  repo.appendMessage({
+    id: seedId,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: {
+          genesis_admin: ['*'],
+        },
+        query_hash_only: true,
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: seedId,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
   return { dir, repo }
 }
 
@@ -55,7 +87,9 @@ async function ensureGenre(app: ReturnType<typeof buildGateway>, genre: string, 
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(ti),
   })
-  expect(res.status).toBe(201)
+  expect(res.status).toBe(202)
+  const body = await res.json() as { id: string }
+  await waitForState(app, body.id, 'archived')
 }
 
 async function submit(app: ReturnType<typeof buildGateway>, message: MessageEnvelope): Promise<Response> {
@@ -83,10 +117,13 @@ describe('Wenyan v0.4.0 rituals', () => {
     await ensureGenre(app, 'petition', { type: 'object', required: ['title'] })
     const petition = baseMessage('petition', { title: 'relay to court' })
     const submitted = await submit(app, petition)
-    expect(submitted.status).toBe(201)
+    expect(submitted.status).toBe(202)
 
-    const status = await app.request(`/messages/${petition.id}`)
-    const payload = await status.json() as { state: string; message: MessageEnvelope; seals: SealRecord[] }
+    const payload = await waitForState(app, petition.id, 'archived') as unknown as {
+      state: string
+      message: MessageEnvelope
+      seals: SealRecord[]
+    }
     expect(payload.state).toBe('archived')
     expect(payload.seals).toHaveLength(6)
     expect(await verifySealChain(payload.message, payload.seals, THREE_IMPERIAL)).toBe(true)
@@ -114,7 +151,8 @@ describe('Wenyan v0.4.0 rituals', () => {
       schema: { type: 'object', required: ['rate'] },
     })
     const res = await submit(app, proposal)
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(202)
+    await waitForState(app, proposal.id, 'pending')
 
     const status = await app.request(`/messages/${proposal.id}`)
     const json = await status.json() as { state: string; transitions: Array<{ reason?: string }> }
@@ -158,7 +196,9 @@ describe('Wenyan v0.4.0 rituals', () => {
     await ensureGenre(app, 'dispatch', { type: 'object', required: ['title'] })
     for (let i = 0; i < 5; i += 1) {
       const r = await submit(app, baseMessage('dispatch', { title: `dispatch-${i}` }))
-      expect(r.status).toBe(201)
+      expect(r.status).toBe(202)
+      const id = (await r.json() as { id: string }).id
+      await waitForState(app, id, 'archived')
     }
 
     const targetDir = mkdtempSync(join(tmpdir(), 'wenyan-ritual-04-sync-target-'))
@@ -235,7 +275,8 @@ describe('Wenyan v0.4.0 rituals', () => {
 
     const valid = baseMessage('petition', { title: 'valid' })
     const ok = await submit(app, valid)
-    expect(ok.status).toBe(201)
+    expect(ok.status).toBe(202)
+    await waitForState(app, valid.id, 'archived')
 
     const status = await app.request(`/messages/${valid.id}`)
     const details = await status.json() as { message: MessageEnvelope; seals: SealRecord[] }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { SqliteArchiveRepository } from '../../archive/src/sqlite'
 import { buildGateway } from '../../gateway/src/index'
 import { ReliableChannel } from '../../channel/src/index'
@@ -9,6 +10,7 @@ import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
 import { createEmptyOffice, applyGenesisFromDir } from '../../genesis/src/index'
 import { SwimMembership } from '../../gossip/src/index'
 import { PbftConsensus } from '../../consensus/src/index'
+import { waitForState } from './helpers'
 
 const tempDirs = new Set<string>()
 
@@ -25,6 +27,35 @@ async function setupOffice(name: string): Promise<{ dir: string; repo: SqliteArc
   const repo = new SqliteArchiveRepository(resolve(dir, "wenyan.dang'an"))
   repo.initialize()
   repo.migrate()
+  const seedId = `edict-access-control-${randomUUID()}`
+  repo.appendMessage({
+    id: seedId,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+        query_hash_only: true,
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: seedId,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
   return { dir, repo }
 }
 
@@ -122,11 +153,8 @@ describe('Consort protocol', () => {
       }),
     })
 
-    expect(res.status).toBe(201)
-
-    const status = await app.request('/messages/ti-pbft-1')
-    expect(status.status).toBe(200)
-    const payload = await status.json() as { state: string; transitions: Array<{ reason?: string }> }
+    expect(res.status).toBe(202)
+    const payload = await waitForState(app, 'ti-pbft-1', 'pending')
     expect(payload.state).toBe('pending')
     expect(payload.transitions.at(-1)?.reason).toBe('awaiting-pbft-consensus')
 

@@ -1285,6 +1285,8 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       checkpoint: normalizedCheckpoint,
       reads: (reads as { results: Array<Record<string, unknown>> }).results,
       digest: sha256(JSON.stringify(normalizedCheckpoint ?? {})),
+      verification_scope: 'checkpoint-digest-only',
+      cryptographic_completeness: 'partial',
     }
   }
 

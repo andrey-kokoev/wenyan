@@ -5,6 +5,7 @@ import { buildGateway } from '../../gateway/src/index'
 import { SqliteArchiveRepository } from '../../archive/src/sqlite'
 import { ReliableChannel } from '../../channel/src/index'
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
+import { sleep, waitForState } from './helpers'
 
 const tempFiles = new Set<string>()
 
@@ -113,6 +114,23 @@ function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
     submittedAt: new Date().toISOString(),
     metadata: { constitutional: true },
   })
+  archiveSeed(repo, {
+    id: `edict-access-control-${Date.now()}`,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
   for (const genre of genres) {
     archiveSeed(repo, {
       id: `ti-${genre}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -152,14 +170,10 @@ describe('Ritual 1: Imperial Examination (Golden Path)', () => {
       body: JSON.stringify(payload),
     })
 
-    // Current runtime returns 202; ritual spec expects 201 when location semantics are implemented.
-    expect([201, 202]).toContain(res.status)
+    expect(res.status).toBe(202)
     const body = await res.json() as { id: string }
 
-    const statusRes = await app.request(`/messages/${body.id}`)
-    expect(statusRes.status).toBe(200)
-    const status = await statusRes.json() as { state: string; seals: unknown[] }
-    expect(status.state).toBe('archived')
+    const status = await waitForState(app, body.id, 'archived')
     expect(status.seals.length).toBe(6)
 
     const allByActor = [repo.getMessage(body.id)].filter((m) => m?.actor.id === 'scholar_01')
@@ -181,9 +195,10 @@ describe('Ritual 2: Tampered Memorial (Integrity Failure)', () => {
       body: JSON.stringify(validMessage('courier_ambushed')),
     })
 
-    expect(res.status).toBe(403)
-    const status = await res.json() as { error: string }
-    expect(status.error).toBe('invalid-seal-chain')
+    expect(res.status).toBe(202)
+    const body = await res.json() as { id: string }
+    const status = await waitForState(app, body.id, 'rejected')
+    expect(status.transitions.at(-1)?.reason).toBe('invalid-seal-chain')
 
     repo.close()
   })
@@ -212,7 +227,7 @@ describe('Ritual 3: Grieved Petition (Idempotency)', () => {
     })
 
     // Target ritual expectation: 2nd should be 200 with same body.
-    expect(first.status).toBe(201)
+    expect(first.status).toBe(202)
     expect(second.status).toBe(200)
 
     repo.close()
@@ -237,12 +252,10 @@ describe('Ritual 4: Multi-Office Memorial (Routing)', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     })
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(202)
 
     const created = await res.json() as { id: string }
-    const statusRes = await app.request(`/messages/${created.id}`)
-    const status = await statusRes.json() as { state: string }
-
+    const status = await waitForState(app, created.id, 'pending')
     expect(status.state).toBe('pending')
 
     repo.close()
@@ -264,8 +277,7 @@ describe('Ritual 5: Forbidden Archive (Immutability)', () => {
 
     // Target ritual expectation: message mutation must be blocked.
     // This assertion intentionally captures the desired invariant.
-    const statusRes = await app.request(`/messages/${created.id}`)
-    const status = await statusRes.json() as { message: { payload: Record<string, unknown> } }
+    const status = await waitForState(app, created.id, 'archived')
     expect(status.message.payload).toEqual(payload.payload)
 
     repo.close()
@@ -288,6 +300,11 @@ describe('Ritual 6: Corrupted Courier (Network Resilience)', () => {
       })
     }
 
+    for (let i = 0; i < 200; i += 1) {
+      const archivedNow = ids.filter((id) => repo.snapshotState(id) === 'archived')
+      if (archivedNow.length === 100) break
+      await sleep(25)
+    }
     const archived = ids.filter((id) => repo.snapshotState(id) === 'archived')
     expect(archived).toHaveLength(100)
 
@@ -310,9 +327,10 @@ describe('Ritual 7: Impersonation Attempt (Identity Boundaries)', () => {
       body: JSON.stringify(validMessage('grand_secretary_li')),
     })
 
-    expect(res.status).toBe(403)
-    const body = await res.json() as { error: string }
-    expect(body.error).toBe('invalid-seal-chain')
+    expect(res.status).toBe(202)
+    const body = await res.json() as { id: string }
+    const status = await waitForState(app, body.id, 'rejected')
+    expect(status.transitions.at(-1)?.reason).toBe('invalid-seal-chain')
 
     repo.close()
   })

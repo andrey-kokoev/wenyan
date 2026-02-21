@@ -1317,6 +1317,8 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       checkpoint: normalizedCheckpoint,
       reads: sealRows,
       digest: sha256(JSON.stringify(normalizedCheckpoint ?? {})),
+      verification_scope: 'checkpoint-digest-only',
+      cryptographic_completeness: 'partial',
     }
   }
 

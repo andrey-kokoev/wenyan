@@ -2,6 +2,15 @@
 
 Wenyan is monorepo implementing the Wenyan runtime architecture.
 
+> `v1.0.0` is withdrawn. Use `v1.0.1` or newer.
+
+## v1.0.1 Hotfix Scope
+
+- Runtime mode is single-node strict only in `v1.0.1`.
+- `distributed.mode = "consort"` and `consensus.kind = "pbft"` are intentionally disabled at server startup.
+- Mesh endpoints remain mounted but return `503 mesh-not-configured` in the hotfix runtime.
+- Audit export verification is checkpoint-digest-only (partial bundle cryptographic semantics).
+
 ## Genesis Docs
 
 If you want to understand the architectural rationale and design principles behind Wenyan, start with the genesis docs:
@@ -51,10 +60,10 @@ If you want to understand the architectural rationale and design principles behi
 - `GET /api/wenyan/messages/:id`
 - `GET /api/wenyan/messages?state=...`
 - `GET /api/wenyan/stream`
-- `GET /api/wenyan/mesh/status`
-- `POST /api/wenyan/mesh/join`
-- `POST /api/wenyan/mesh/sync`
-- `GET /api/wenyan/mesh/merkle-root`
+- `GET /api/wenyan/mesh/status` (returns `503` in v1.0.1 hotfix runtime)
+- `POST /api/wenyan/mesh/join` (returns `503` in v1.0.1 hotfix runtime)
+- `POST /api/wenyan/mesh/sync` (returns `503` in v1.0.1 hotfix runtime)
+- `GET /api/wenyan/mesh/merkle-root` (returns `503` in v1.0.1 hotfix runtime)
 
 Bridge runtime (standalone):
 
