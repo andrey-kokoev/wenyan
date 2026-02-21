@@ -361,7 +361,7 @@ app.use('*', async (c, next) => {
       wenyanGatewayOptions.auth = {
         jwtIssuer: bootstrap.auth.jwt_issuer,
         jwtAudience: bootstrap.auth.jwt_audience,
-        jwtAlg: bootstrap.auth.jwt_alg,
+        jwtAlg: bootstrap.auth.jwt_alg === 'HS256' ? 'HS256' : undefined,
         jwtSecret: bootstrap.auth.jwt_secret,
         allowHeaderActor: bootstrap.auth.allow_header_actor,
       }

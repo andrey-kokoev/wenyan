@@ -34,16 +34,16 @@ export class PbftConsensus {
     return msg
   }
 
-  onPrePrepare(msg: PbftMessage): void {
-    this.append(msg)
+  onPrePrepare(msg: PbftMessage): boolean {
+    return this.append(msg)
   }
 
-  onPrepare(msg: PbftMessage): void {
-    this.append({ ...msg, phase: 'prepare' })
+  onPrepare(msg: PbftMessage): boolean {
+    return this.append({ ...msg, phase: 'prepare' })
   }
 
-  onCommit(msg: PbftMessage): void {
-    this.append({ ...msg, phase: 'commit' })
+  onCommit(msg: PbftMessage): boolean {
+    return this.append({ ...msg, phase: 'commit' })
   }
 
   onViewChange(nodeId: string): PbftMessage {
@@ -71,11 +71,12 @@ export class PbftConsensus {
     return this.viewNo
   }
 
-  private append(msg: PbftMessage): void {
-    if (!this.options.replicaSet.includes(msg.nodeId)) return
+  private append(msg: PbftMessage): boolean {
+    if (!this.options.replicaSet.includes(msg.nodeId)) return false
     const arr = this.log.get(msg.proposalId) ?? []
-    if (arr.find((m) => m.nodeId === msg.nodeId && m.phase === msg.phase && m.viewNo === msg.viewNo)) return
+    if (arr.find((m) => m.nodeId === msg.nodeId && m.phase === msg.phase && m.viewNo === msg.viewNo)) return false
     arr.push(msg)
     this.log.set(msg.proposalId, arr)
+    return true
   }
 }

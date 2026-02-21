@@ -77,8 +77,22 @@ export interface GatewayRuntimeOptions {
   consensusKind?: 'none' | 'pbft'
   pbftConsensus?: {
     proposeTiDefinition(proposalId: string, leaderNodeId: string): unknown
-    onPrepare(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
-    onCommit(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
+    onPrepare(msg: {
+      proposalId: string
+      viewNo: number
+      nodeId: string
+      phase: 'prepare'
+      signature: string
+      at: string
+    }): boolean | Promise<boolean>
+    onCommit(msg: {
+      proposalId: string
+      viewNo: number
+      nodeId: string
+      phase: 'commit'
+      signature: string
+      at: string
+    }): boolean | Promise<boolean>
     commitIfThreshold(proposalId: string): boolean
     currentView(): number
   }

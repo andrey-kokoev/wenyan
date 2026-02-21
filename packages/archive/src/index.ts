@@ -32,7 +32,7 @@ export interface MerkleProof {
   messageId: string
   leafHash: string
   rootHash: string
-  path: string[]
+  path: Array<{ siblingHash: string; side: 'left' | 'right' }>
 }
 
 export interface GossipLogEntry {

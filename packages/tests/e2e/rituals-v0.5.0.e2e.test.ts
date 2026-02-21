@@ -166,7 +166,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
     const bootstrap = parseBootstrapConfig({
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000010', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
-      gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+      gateway: { listen: { host: '127.0.0.1', port: 8787 }, stream_mode: 'sse' },
       bridge: {
         enabled: true,
         adapters: [adapter.config],
@@ -218,7 +218,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
     const bootstrap = parseBootstrapConfig({
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000011', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
-      gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+      gateway: { listen: { host: '127.0.0.1', port: 8787 }, stream_mode: 'sse' },
       bridge: { enabled: true, adapters: [adapter.config] },
     })
     const bridge = new BridgeGateway({ bootstrap, archive: repo, apiBaseUrl: 'http://bridge.local/api/wenyan', adapters: [adapter] })
@@ -234,7 +234,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
     const bootstrap = parseBootstrapConfig({
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000012', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
-      gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+      gateway: { listen: { host: '127.0.0.1', port: 8787 }, stream_mode: 'sse' },
       bridge: { enabled: true, adapters: [adapter.config] },
     })
     const bridge = new BridgeGateway({ bootstrap, archive: repo, apiBaseUrl: 'http://bridge.local/api/wenyan', adapters: [adapter] })

@@ -19,9 +19,24 @@ const MAX_FOREIGN_TOPIC_LENGTH = 256
 const MAX_FOREIGN_HEADER_VALUE = 2048
 const SAFE_TOPIC = /^[a-zA-Z0-9._:/-]+$/
 
+type BridgeBootstrapConfig = {
+  archive: BootstrapConfig['archive']
+  genesis: BootstrapConfig['genesis']
+  gateway: {
+    listen: {
+      host: string
+      port: number
+    }
+    upstream?: string
+    stream_mode?: 'sse'
+  }
+  auth: BootstrapConfig['auth']
+  bridge: BootstrapConfig['bridge']
+}
+
 export interface BridgeGatewayOptions {
   archive?: ArchiveRepository
-  bootstrap: BootstrapConfig
+  bootstrap: BridgeBootstrapConfig
   apiBaseUrl?: string
   adapters?: BridgeAdapter[]
 }
@@ -38,7 +53,7 @@ function encodeBase64Url(value: string): string {
     .replace(/=+$/g, '')
 }
 
-function defaultApiBaseUrl(config: BootstrapConfig): string {
+function defaultApiBaseUrl(config: BridgeBootstrapConfig): string {
   return `http://${config.gateway.listen.host}:${config.gateway.listen.port}/api/wenyan`
 }
 
@@ -97,7 +112,7 @@ function sanitizeForeignMetadata(metadata: ForeignMetadata): ForeignMetadata {
 
 export class BridgeGateway {
   private readonly archive: ArchiveRepository
-  private readonly config: BootstrapConfig
+  private readonly config: BridgeBootstrapConfig
   private readonly apiBaseUrl: string
   private readonly adapters: BridgeAdapter[]
   private readonly authHeader: string
@@ -328,7 +343,7 @@ export class BridgeGateway {
     return new RegulatoryBridgeAdapter(config)
   }
 
-  private createArchiveFromBootstrap(config: BootstrapConfig): ArchiveRepository {
+  private createArchiveFromBootstrap(config: BridgeBootstrapConfig): ArchiveRepository {
     if (config.archive.engine !== 'sqlite') {
       throw new Error('bridge standalone runtime currently supports sqlite archive only')
     }
@@ -391,7 +406,7 @@ export class BridgeGateway {
         exp: now + 3600,
       }),
     )
-    const secret = this.config.auth.jwt_secret
+    const secret = this.config.auth.jwt_secret ?? 'wenyan-local-jwt-secret'
     const sig = createHmac('sha256', secret)
       .update(`${header}.${payload}`)
       .digest('base64')

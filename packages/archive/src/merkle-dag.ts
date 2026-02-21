@@ -26,14 +26,16 @@ export function merkleRootForLeaves(leaves: string[]): string {
 
 export interface MerkleProofLike {
   leafHash: string
-  path: string[]
+  path: Array<{ siblingHash: string; side: 'left' | 'right' }>
   rootHash: string
 }
 
 export function verifyMerkleProof(proof: MerkleProofLike): boolean {
   let hash = proof.leafHash
   for (const step of proof.path) {
-    hash = blake3CompatHash(`${hash}:${step}`)
+    hash = step.side === 'left'
+      ? blake3CompatHash(`${step.siblingHash}:${hash}`)
+      : blake3CompatHash(`${hash}:${step.siblingHash}`)
   }
   return hash === proof.rootHash
 }
