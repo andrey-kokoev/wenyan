@@ -11,13 +11,14 @@ import { ReliableChannel, constitutionalMerkleRoot } from '../../channel/src/ind
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
 import { createEmptyOffice, applyGenesisFromDir } from '../../genesis/src/index'
 import type { MessageEnvelope } from '../../core/src/index'
+import { waitForState, issueToken } from './helpers'
 
 const tempDirs = new Set<string>()
 
 const SINGLE_IMPERIAL = { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-1'] }
 const THREE_IMPERIAL = { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-1', 'sig-2', 'sig-3'] }
 
-function makeOfficeDir(name: string): string {
+function makeOfficeDir (name: string): string {
   const dir = mkdtempSync(join(tmpdir(), `wenyan-${name}-`))
   tempDirs.add(dir)
   return dir
@@ -30,7 +31,7 @@ afterEach(() => {
   tempDirs.clear()
 })
 
-function openRepoFromOffice(dir: string): SqliteArchiveRepository {
+function openRepoFromOffice (dir: string): SqliteArchiveRepository {
   const dbPath = resolve(dir, "wenyan.dang'an")
   const repo = new SqliteArchiveRepository(dbPath)
   repo.initialize()
@@ -38,21 +39,55 @@ function openRepoFromOffice(dir: string): SqliteArchiveRepository {
   return repo
 }
 
-function countMessages(dbPath: string): number {
+function seedReadAccessLaw (repo: SqliteArchiveRepository): void {
+  const id = `edict-access-control-${randomUUID()}`
+  repo.appendMessage({
+    id,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: {
+          genesis_admin: ['*'],
+        },
+        query_hash_only: true,
+      },
+      precedence: 100,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: id,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
+}
+
+function countMessages (dbPath: string): number {
   const db = new DatabaseSync(dbPath)
   const row = db.prepare('SELECT COUNT(*) AS c FROM messages').get() as { c: number }
   db.close()
   return Number(row.c)
 }
 
-function countConstitutional(dbPath: string): number {
+function countConstitutional (dbPath: string): number {
   const db = new DatabaseSync(dbPath)
   const row = db.prepare('SELECT COUNT(*) AS c FROM messages WHERE constitutional = 1').get() as { c: number }
   db.close()
   return Number(row.c)
 }
 
-function constitutionalByGenre(dbPath: string): Array<{ genre: string; c: number }> {
+function constitutionalByGenre (dbPath: string): Array<{ genre: string; c: number }> {
   const db = new DatabaseSync(dbPath)
   const rows = db
     .prepare('SELECT genre, COUNT(*) AS c FROM messages WHERE constitutional = 1 GROUP BY genre ORDER BY genre')
@@ -61,7 +96,7 @@ function constitutionalByGenre(dbPath: string): Array<{ genre: string; c: number
   return rows
 }
 
-function firstTiDefinitionId(dbPath: string): string | undefined {
+function firstTiDefinitionId (dbPath: string): string | undefined {
   const db = new DatabaseSync(dbPath)
   const row = db
     .prepare("SELECT id FROM messages WHERE genre = 'ti_definition' AND constitutional = 1 ORDER BY archived_at ASC LIMIT 1")
@@ -70,41 +105,45 @@ function firstTiDefinitionId(dbPath: string): string | undefined {
   return row?.id
 }
 
-function sealCount(dbPath: string, messageId: string): number {
+function sealCount (dbPath: string, messageId: string): number {
   const db = new DatabaseSync(dbPath)
   const row = db.prepare('SELECT COUNT(*) AS c FROM seals WHERE message_id = ?').get(messageId) as { c: number }
   db.close()
   return Number(row.c)
 }
 
-function baseMessage(genre: string, payload: Record<string, unknown>, role = 'genesis_admin'): MessageEnvelope {
+function baseMessage (genre: string, payload: Record<string, unknown>, role = 'genesis_admin'): MessageEnvelope {
   return {
     id: `${genre}-${randomUUID()}`,
     genre,
     payload,
-    actor: { id: 'ritualist', role },
+    actor: { id: `ritualist-${randomUUID()}`, role },
     submittedAt: new Date().toISOString(),
     metadata: {},
   }
 }
 
-async function submit(app: ReturnType<typeof buildGateway>, message: MessageEnvelope): Promise<Response> {
+async function submit (app: ReturnType<typeof buildGateway>, message: MessageEnvelope, headers?: Record<string, string>): Promise<Response> {
   return app.request('/messages', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(message),
   })
 }
 
-async function waitForState(
+async function waitForState (
   app: ReturnType<typeof buildGateway>,
   id: string,
   expected: string,
   timeoutMs = 5000,
+  intervalMs = 50,
+  options?: { headers?: Record<string, string> },
 ): Promise<{ state: string; transitions: Array<{ reason?: string }> }> {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
-    const res = await app.request(`/messages/${id}`)
+    const res = await app.request(`/messages/${id}`, {
+      headers: options?.headers,
+    })
     if (res.status === 200) {
       const body = await res.json() as { state: string; transitions: Array<{ reason?: string }> }
       if (body.state === expected) return body
@@ -114,7 +153,7 @@ async function waitForState(
   throw new Error(`timeout waiting for ${id} -> ${expected}`)
 }
 
-async function waitForNonArchivedState(
+async function waitForNonArchivedState (
   repo: SqliteArchiveRepository,
   id: string,
   timeoutMs = 5000,
@@ -128,7 +167,7 @@ async function waitForNonArchivedState(
   return repo.snapshotState(id)
 }
 
-async function waitForGenreSchema(
+async function waitForGenreSchema (
   repo: SqliteArchiveRepository,
   genre: string,
   timeoutMs = 5000,
@@ -182,6 +221,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     expect(sealCount(dbPath, tiId!)).toBeGreaterThan(0)
 
     const repo = openRepoFromOffice(dir)
+    seedReadAccessLaw(repo)
     const app = buildGateway(repo, new ReliableChannel(), THREE_IMPERIAL, { lawMode: 'strict' })
 
     const addPetitionTi = await submit(
@@ -191,14 +231,21 @@ describe('Wenyan v0.3.0 rituals', () => {
         version: '1.0.0',
         schema: { type: 'object', required: ['title'] },
       }),
+      { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` }
     )
     expect(addPetitionTi.status).toBe(202)
     const addPetitionTiId = (await addPetitionTi.json() as { id: string }).id
-    await waitForState(app, addPetitionTiId, 'archived')
+    await waitForState(app, addPetitionTiId, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
     await waitForGenreSchema(repo, 'petition')
 
-    const petition = await submit(app, baseMessage('petition', { title: 'after genesis' }))
+    const petition = await submit(app, baseMessage('petition', { title: 'after genesis' }), { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })
     expect(petition.status).toBe(202)
+    const petitionId = (await petition.json() as { id: string }).id
+    await waitForState(app, petitionId, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
     repo.close()
   })
 
@@ -209,6 +256,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     const dbPath = resolve(dir, "wenyan.dang'an")
 
     const repoSingle = openRepoFromOffice(dir)
+    seedReadAccessLaw(repoSingle)
     const appSingle = buildGateway(repoSingle, new ReliableChannel(), SINGLE_IMPERIAL, { lawMode: 'strict' })
     const blocked = await submit(
       appSingle,
@@ -220,14 +268,12 @@ describe('Wenyan v0.3.0 rituals', () => {
     )
     expect(blocked.status).toBe(202)
     const blockedId = (await blocked.json() as { id: string }).id
-    const blockedState = await waitForNonArchivedState(repoSingle, blockedId)
-    expect(blockedState).not.toBe('archived')
-    if (blockedState === 'rejected') {
-      expect(repoSingle.getTransitions(blockedId).at(-1)?.reason).toBe('insufficient-imperial-authority')
-    }
+    const blockedState = await waitForState(appSingle, blockedId, 'rejected')
+    expect(blockedState.transitions.at(-1)?.reason).toBe('insufficient-imperial-authority')
     repoSingle.close()
 
     const repoThree = openRepoFromOffice(dir)
+    seedReadAccessLaw(repoThree)
     const appThree = buildGateway(repoThree, new ReliableChannel(), THREE_IMPERIAL, { lawMode: 'strict' })
     const accepted = await submit(
       appThree,
@@ -257,6 +303,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     await applyGenesisFromDir(dir)
 
     const repo = openRepoFromOffice(dir)
+    seedReadAccessLaw(repo)
     const app = buildGateway(repo, new ReliableChannel(), SINGLE_IMPERIAL, { lawMode: 'strict' })
     const edict = baseMessage('edict', {
       law_type: 'routing',
@@ -280,6 +327,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     await createEmptyOffice(dir)
     await applyGenesisFromDir(dir)
     const repo = openRepoFromOffice(dir)
+    seedReadAccessLaw(repo)
     const app = buildGateway(repo, new ReliableChannel(), THREE_IMPERIAL, { lawMode: 'strict' })
 
     const addPetitionTi = await submit(
@@ -289,10 +337,13 @@ describe('Wenyan v0.3.0 rituals', () => {
         version: '1.0.0',
         schema: { type: 'object', required: ['title', 'routing'] },
       }),
+      { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` }
     )
     expect(addPetitionTi.status).toBe(202)
     const addPetitionTiId = (await addPetitionTi.json() as { id: string }).id
-    await waitForState(app, addPetitionTiId, 'archived')
+    await waitForState(app, addPetitionTiId, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
     await waitForGenreSchema(repo, 'petition')
 
     const protocolTwo = baseMessage('edict', {
@@ -302,14 +353,20 @@ describe('Wenyan v0.3.0 rituals', () => {
       precedence: 10,
       effective_date: '2026-01-01T00:00:00.000Z',
     })
-    expect((await submit(app, protocolTwo)).status).toBe(202)
+    const protocolTwoRes = await submit(app, protocolTwo, { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })
+    expect(protocolTwoRes.status).toBe(202)
+    await waitForState(app, protocolTwo.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
 
     const msgA = baseMessage('petition', {
       title: 'A',
       routing: { destination: ['office-a', 'office-b'] },
     })
-    expect((await submit(app, msgA)).status).toBe(202)
-    const aJson = await waitForState(app, msgA.id, 'pending')
+    expect((await submit(app, msgA, { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })).status).toBe(202)
+    const aJson = await waitForState(app, msgA.id, 'pending', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
     expect(aJson.state).toBe('pending')
 
     const protocolOne = baseMessage('edict', {
@@ -320,15 +377,20 @@ describe('Wenyan v0.3.0 rituals', () => {
       effective_date: '2026-01-01T00:00:01.000Z',
       superseded_edict_id: protocolTwo.id,
     })
-    expect((await submit(app, protocolOne)).status).toBe(202)
-    await waitForState(app, protocolOne.id, 'archived')
+    const protocolOneRes = await submit(app, protocolOne, { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })
+    expect(protocolOneRes.status).toBe(202)
+    await waitForState(app, protocolOne.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
 
     const msgB = baseMessage('petition', {
       title: 'B',
       routing: { destination: ['office-a', 'office-b'] },
     })
-    expect((await submit(app, msgB)).status).toBe(202)
-    const bJson = await waitForState(app, msgB.id, 'archived')
+    expect((await submit(app, msgB, { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })).status).toBe(202)
+    const bJson = await waitForState(app, msgB.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
     expect(bJson.state).toBe('archived')
     repo.close()
   })
@@ -347,7 +409,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     expect(rootA).not.toBe(rootB)
 
     const appB = buildGateway(repoB, new ReliableChannel(), SINGLE_IMPERIAL, { lawMode: 'strict' })
-    const preSync = await submit(appB, baseMessage('petition', { title: 'before sync' }))
+    const preSync = await submit(appB, baseMessage('petition', { title: 'before sync' }), { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })
     expect(preSync.status).toBe(503)
 
     repoA.close()

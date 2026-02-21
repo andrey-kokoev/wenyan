@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.0.1] - 2026-02-21
+
+### Security
+- Gateway no longer accepts spoofable `x-wenyan-actor-*` identity headers in normal runtime paths; header actor mode is limited to explicit test/debug opt-in.
+- Read access remains fail-closed when `access_control` law is missing, invalid, or ambiguous, with denial receipts persisted through Seal 0 audit logging.
+- Runtime no longer relies on permissive defaults for seal context in server/gateway composition; startup now derives cryptographic context from bootstrap/env and rejects placeholder genesis keys.
+
+### Changed
+- `POST /api/wenyan/messages` remains enqueue-first and returns `202 Accepted`; request paths no longer perform synchronous pipeline completion.
+- Docket worker now converts processing exceptions into explicit rejected transitions (`invalid-seal-chain`, `insufficient-imperial-authority`, or error reason) instead of leaving messages stranded mid-pipeline.
+- Streaming contract is explicit:
+  - `GET /api/wenyan/stream` uses SSE.
+  - `GET /api/wenyan/stream/replay` returns JSON replay.
+- Bridge outbound capture now reads replay JSON (`/stream/replay`) and uses authenticated reads when fetching archived messages.
+- Audit export payloads no longer present `bundle_digest`; exported bundles now declare `verification_scope: checkpoint-digest-only` and `cryptographic_completeness: partial`.
+
+### Disabled
+- `distributed.mode = "consort"` is hard-disabled at server startup in v1.0.1 (`Feature Disabled` startup error).
+- `consensus.kind = "pbft"` is hard-disabled at server startup in v1.0.1 (`Feature Disabled` startup error).
+- Mesh join/sync/status/root routes return `503 mesh-not-configured` unless explicitly wired by future releases.
+
+### Notes
+- `v1.0.0` is withdrawn. Use `>= v1.0.1`.
+- Hotfix scope and follow-on work tracking are documented in `REMEDIATION_PLAN.md`.
+
 ## [1.0.0] - 2026-02-20
 
 ### Added
@@ -166,6 +191,8 @@ All notable changes to this project are documented in this file.
 - Initial Wenyan monorepo structure with core runtime packages and API-only server flow.
 - Seal chain, archive, gateway, pipeline, channel, actor, CLI, and e2e test scaffolding.
 
+[1.0.1]: https://github.com/andrey-kokoev/wenyan/releases/tag/v1.0.1
+[1.0.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v1.0.0
 [0.2.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.2.0
 [0.3.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.3.0
 [0.4.0]: https://github.com/andrey-kokoev/wenyan/releases/tag/v0.4.0

@@ -36,7 +36,7 @@ export class PbftValidationError extends Error {
   }
 }
 
-export function canonicalPbftPayload(msg: PbftMessageToSign): string {
+export function canonicalPbftPayload (msg: PbftMessageToSign): string {
   return JSON.stringify({
     proposalId: msg.proposalId,
     viewNo: msg.viewNo,
@@ -46,12 +46,12 @@ export function canonicalPbftPayload(msg: PbftMessageToSign): string {
   })
 }
 
-export async function signPbftMessage(msg: PbftMessageToSign, privateKeyHex: string): Promise<string> {
+export async function signPbftMessage (msg: PbftMessageToSign, privateKeyHex: string): Promise<string> {
   const sig = await signAsync(utf8ToBytes(canonicalPbftPayload(msg)), hexToBytes(privateKeyHex))
   return bytesToHex(sig)
 }
 
-export async function verifyPbftMessageSignature(
+export async function verifyPbftMessageSignature (
   msg: PbftMessage,
   publicKeyHex: string,
 ): Promise<boolean> {
@@ -72,7 +72,7 @@ export class PbftConsensus {
     this.privateKeys = { ...(options.replicaPrivateKeys ?? {}) }
   }
 
-  async proposeTiDefinition(proposalId: string, leaderNodeId: string): Promise<PbftMessage> {
+  async proposeTiDefinition (proposalId: string, leaderNodeId: string): Promise<PbftMessage> {
     const privateKey = this.privateKeys[leaderNodeId]
     if (!privateKey) {
       throw new PbftValidationError('missing-private-key', `missing private key for node ${leaderNodeId}`)
@@ -95,22 +95,19 @@ export class PbftConsensus {
     return msg
   }
 
-  async onPrePrepare(msg: PbftMessage): Promise<boolean> {
-    await this.append(msg, 'pre-prepare')
-    return true
+  async onPrePrepare (msg: PbftMessage): Promise<boolean> {
+    return await this.append(msg, 'pre-prepare')
   }
 
-  async onPrepare(msg: PbftMessage): Promise<boolean> {
-    await this.append(msg, 'prepare')
-    return true
+  async onPrepare (msg: PbftMessage): Promise<boolean> {
+    return await this.append(msg, 'prepare')
   }
 
-  async onCommit(msg: PbftMessage): Promise<boolean> {
-    await this.append(msg, 'commit')
-    return true
+  async onCommit (msg: PbftMessage): Promise<boolean> {
+    return await this.append(msg, 'commit')
   }
 
-  async onViewChange(nodeId: string): Promise<PbftMessage> {
+  async onViewChange (nodeId: string): Promise<PbftMessage> {
     this.viewNo += 1
     const privateKey = this.privateKeys[nodeId]
     if (!privateKey) {
@@ -134,7 +131,7 @@ export class PbftConsensus {
     return msg
   }
 
-  commitIfThreshold(proposalId: string): boolean {
+  commitIfThreshold (proposalId: string): boolean {
     const messages = this.log.get(proposalId) ?? []
     const hasPrePrepare = messages.some((m) => m.phase === 'pre-prepare')
     if (!hasPrePrepare) return false
@@ -143,11 +140,11 @@ export class PbftConsensus {
     return prepares.size >= this.options.threshold && commits.size >= this.options.threshold
   }
 
-  currentView(): number {
+  currentView (): number {
     return this.viewNo
   }
 
-  private async append(msg: PbftMessage, phase: PbftPhase): Promise<void> {
+  private async append (msg: PbftMessage, phase: PbftPhase): Promise<boolean> {
     if (!this.options.replicaSet.includes(msg.nodeId)) {
       throw new PbftValidationError('unknown-node', `node ${msg.nodeId} not in replica set`)
     }
@@ -159,8 +156,9 @@ export class PbftConsensus {
       throw new PbftValidationError('invalid-signature', `invalid PBFT signature from node ${msg.nodeId}`)
     }
     const arr = this.log.get(msg.proposalId) ?? []
-    if (arr.find((m) => m.nodeId === msg.nodeId && m.phase === msg.phase && m.viewNo === msg.viewNo)) return
+    if (arr.find((m) => m.nodeId === msg.nodeId && m.phase === msg.phase && m.viewNo === msg.viewNo)) return false
     arr.push(msg)
     this.log.set(msg.proposalId, arr)
+    return true
   }
 }

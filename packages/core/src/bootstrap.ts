@@ -23,6 +23,7 @@ const GatewayConfigSchema = z.object({
   stream_mode: z.enum(['sse']).default('sse'),
 })
 
+
 const LawConfigSchema = z.object({
   mode: LawModeSchema.default('strict'),
 })

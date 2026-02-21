@@ -7,7 +7,7 @@ import { ritualNumbers, sensorReading } from './fixtures'
 import { coldMigrationPlan } from '../../../../examples/smart-greenhouse/src/lib/cold-migration'
 import { createPbftFixture } from '../pbft-helpers'
 
-function digest(input: unknown): string {
+function digest (input: unknown): string {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex')
 }
 
@@ -34,7 +34,7 @@ describe('Wenyan v0.6.0 examples rituals', () => {
 
     const amend = await submit(
       app,
-          message('task-ti-v2', 'ti_definition', {
+      message('task-ti-v2', 'ti_definition', {
         target_genre: 'petition',
         version: '2.0.0',
         schema: { type: 'object', required: ['title', 'priority'] },

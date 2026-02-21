@@ -27,21 +27,21 @@ import type {
 import { buildMerkleProofFromLeaves, merkleRootForLeaves } from './merkle-dag'
 
 export interface D1DatabaseLike {
-  prepare(query: string): {
-    bind(...values: unknown[]): {
-      first<T = Record<string, unknown>>(): Promise<T | null>
-      all<T = unknown[]>(): Promise<{ results: T } | { results: Record<string, unknown>[] }>
-      run(): Promise<unknown>
+  prepare (query: string): {
+    bind (...values: unknown[]): {
+      first<T = Record<string, unknown>> (): Promise<T | null>
+      all<T = unknown[]> (): Promise<{ results: T } | { results: Record<string, unknown>[] }>
+      run (): Promise<unknown>
     }
   }
-  exec(query: string): Promise<unknown>
+  exec (query: string): Promise<unknown>
 }
 
 interface ArchiveOptions {
   retentionDays?: number
 }
 
-function sha256(input: string): string {
+function sha256 (input: string): string {
   let hash = 0
   for (let i = 0; i < input.length; i += 1) {
     hash = (hash * 31 + input.charCodeAt(i)) >>> 0
@@ -56,7 +56,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     this.retentionDays = options.retentionDays ?? 3650
   }
 
-  async initialize(): Promise<void> {
+  async initialize (): Promise<void> {
     await this.db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
@@ -277,7 +277,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     `)
   }
 
-  async migrate(): Promise<void> {
+  async migrate (): Promise<void> {
     await this.initialize()
     const latest = await this.db
       .prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1')
@@ -454,7 +454,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }
   }
 
-  async appendMessage(message: MessageEnvelope): Promise<void> {
+  async appendMessage (message: MessageEnvelope): Promise<void> {
     const payload = message.payload as Record<string, unknown>
     const metadata = message.metadata as Record<string, unknown>
     const constitutional = message.genre === 'ti_definition' || metadata.constitutional === true ? 1 : 0
@@ -484,7 +484,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async appendTransition(transition: Transition): Promise<void> {
+  async appendTransition (transition: Transition): Promise<void> {
     const current = (await this.snapshotState(transition.messageId)) ?? 'pending'
     if (!canTransition(current, transition.toState) && current !== transition.fromState) {
       throw new Error(`Invalid transition ${current} -> ${transition.toState}`)
@@ -535,7 +535,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }
   }
 
-  async appendSeal(seal: SealRecord): Promise<void> {
+  async appendSeal (seal: SealRecord): Promise<void> {
     await this.db
       .prepare('INSERT INTO seals(seal_id, message_id, stage, prev_hash, hash, signature, created_at, payload_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(
@@ -554,14 +554,14 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     await this.db.prepare('UPDATE messages SET seal_chain_json = ? WHERE id = ?').bind(JSON.stringify(seals), seal.messageId).run()
   }
 
-  async enqueueDocket(messageId: string): Promise<void> {
+  async enqueueDocket (messageId: string): Promise<void> {
     await this.db
       .prepare('INSERT INTO docket(id, message_id, attempts, available_at) VALUES(?, ?, ?, ?)')
       .bind(`${messageId}:${Date.now()}`, messageId, 0, new Date().toISOString())
       .run()
   }
 
-  async dequeueDocket(nowIso: string): Promise<DocketItem | undefined> {
+  async dequeueDocket (nowIso: string): Promise<DocketItem | undefined> {
     const row = await this.db
       .prepare('SELECT id, message_id, attempts, available_at FROM docket WHERE available_at <= ? ORDER BY available_at ASC LIMIT 1')
       .bind(nowIso)
@@ -572,7 +572,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return { id: row.id, messageId: row.message_id, attempts: row.attempts, availableAt: row.available_at }
   }
 
-  async snapshotState(messageId: string): Promise<MessageState | undefined> {
+  async snapshotState (messageId: string): Promise<MessageState | undefined> {
     const row = await this.db
       .prepare('SELECT to_state FROM transitions WHERE message_id = ? ORDER BY sequence_no DESC LIMIT 1')
       .bind(messageId)
@@ -580,7 +580,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return row?.to_state
   }
 
-  async getMessage(messageId: string): Promise<MessageEnvelope | undefined> {
+  async getMessage (messageId: string): Promise<MessageEnvelope | undefined> {
     const row = await this.db
       .prepare('SELECT payload_json FROM messages WHERE id = ?')
       .bind(messageId)
@@ -589,7 +589,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return JSON.parse(row.payload_json) as MessageEnvelope
   }
 
-  async getTransitions(messageId: string): Promise<Transition[]> {
+  async getTransitions (messageId: string): Promise<Transition[]> {
     const rows = await this.db
       .prepare(
         `SELECT message_id, from_state, to_state, sequence_no, actor_id, sealed_at, reason, prev_transition_hash, at
@@ -611,7 +611,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async getSeals(messageId: string): Promise<SealRecord[]> {
+  async getSeals (messageId: string): Promise<SealRecord[]> {
     const rows = await this.db
       .prepare('SELECT seal_id, message_id, stage, prev_hash, hash, signature, created_at, payload_json FROM seals WHERE message_id = ? ORDER BY created_at ASC')
       .bind(messageId)
@@ -629,7 +629,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async getIdempotency(key: string, nowIso: string): Promise<{ key: string; responseJson: string; expiresAt: string } | undefined> {
+  async getIdempotency (key: string, nowIso: string): Promise<{ key: string; responseJson: string; expiresAt: string } | undefined> {
     const row = await this.db
       .prepare('SELECT key, response_json, expires_at FROM idempotency_keys WHERE key = ?')
       .bind(key)
@@ -638,7 +638,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return { key: String(row.key), responseJson: String(row.response_json), expiresAt: String(row.expires_at) }
   }
 
-  async putIdempotency(key: string, responseJson: string, expiresAt: string): Promise<void> {
+  async putIdempotency (key: string, responseJson: string, expiresAt: string): Promise<void> {
     await this.db
       .prepare(
         'INSERT INTO idempotency_keys(key, response_json, expires_at, created_at) VALUES(?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET response_json = excluded.response_json, expires_at = excluded.expires_at',
@@ -647,7 +647,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async addOfficeApproval(messageId: string, office: string): Promise<number> {
+  async addOfficeApproval (messageId: string, office: string): Promise<number> {
     await this.db
       .prepare('INSERT INTO office_approvals(message_id, office, approved_at) VALUES(?, ?, ?) ON CONFLICT(message_id, office) DO NOTHING')
       .bind(messageId, office, new Date().toISOString())
@@ -657,7 +657,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return row?.c ?? 0
   }
 
-  async getOfficeApprovals(messageId: string): Promise<string[]> {
+  async getOfficeApprovals (messageId: string): Promise<string[]> {
     const rows = await this.db
       .prepare('SELECT office FROM office_approvals WHERE message_id = ? ORDER BY office ASC')
       .bind(messageId)
@@ -665,7 +665,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return ((rows as { results: Array<Record<string, unknown>> }).results).map((r) => String(r.office))
   }
 
-  async stateAt(messageId: string, timestampIso: string): Promise<MessageState | undefined> {
+  async stateAt (messageId: string, timestampIso: string): Promise<MessageState | undefined> {
     const row = await this.db
       .prepare(
         `SELECT to_state
@@ -680,12 +680,12 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return row?.to_state
   }
 
-  async getActiveGenreSchema(targetGenre: string): Promise<Record<string, unknown> | undefined> {
+  async getActiveGenreSchema (targetGenre: string): Promise<Record<string, unknown> | undefined> {
     const def = await this.getCurrentTiDefinition(targetGenre)
     return def?.schema
   }
 
-  async getCurrentTiDefinition(genre: string, atIso = new Date().toISOString()): Promise<TiDefinitionRecord | undefined> {
+  async getCurrentTiDefinition (genre: string, atIso = new Date().toISOString()): Promise<TiDefinitionRecord | undefined> {
     const row = await this.db
       .prepare(
         `SELECT t.message_id, t.target_genre, t.version, t.schema_json, t.sealed_at
@@ -713,7 +713,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }
   }
 
-  async getCurrentLaw(lawType: EdictLawType, atIso: string): Promise<ResolvedLaw | undefined> {
+  async getCurrentLaw (lawType: EdictLawType, atIso: string): Promise<ResolvedLaw | undefined> {
     const rows = await this.db
       .prepare(
         `SELECT
@@ -767,7 +767,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }
   }
 
-  async getLawSet(atIso: string): Promise<Record<EdictLawType, ResolvedLaw | undefined>> {
+  async getLawSet (atIso: string): Promise<Record<EdictLawType, ResolvedLaw | undefined>> {
     const out = {} as Record<EdictLawType, ResolvedLaw | undefined>
     for (const lawType of EdictLawTypeValues) {
       out[lawType] = await this.getCurrentLaw(lawType, atIso)
@@ -775,7 +775,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return out
   }
 
-  async getConstitutionalDocuments(): Promise<ConstitutionalDocumentRef[]> {
+  async getConstitutionalDocuments (): Promise<ConstitutionalDocumentRef[]> {
     const rows = await this.db
       .prepare(
         `SELECT id, archived_at
@@ -792,7 +792,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async getMerkleRoot(scope: 'all' | 'constitutional' | 'legislative' = 'all'): Promise<string> {
+  async getMerkleRoot (scope: 'all' | 'constitutional' | 'legislative' = 'all'): Promise<string> {
     const { leaves } = await this.collectMerkleLeaves(scope)
     const root = merkleRootForLeaves(leaves)
     await this.db
@@ -805,7 +805,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return root
   }
 
-  async getMerkleProof(messageId: string): Promise<MerkleProof | undefined> {
+  async getMerkleProof (messageId: string): Promise<MerkleProof | undefined> {
     const { leaves, messageLeafRows } = await this.collectMerkleLeaves('all')
     const idx = messageLeafRows.findIndex((r) => r.id === messageId)
     if (idx < 0) return undefined
@@ -813,7 +813,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return { messageId, leafHash: proof.leafHash, rootHash: proof.rootHash, path: proof.path }
   }
 
-  private async collectMerkleLeaves(scope: 'all' | 'constitutional' | 'legislative'): Promise<{
+  private async collectMerkleLeaves (scope: 'all' | 'constitutional' | 'legislative'): Promise<{
     leaves: string[]
     messageLeafRows: Array<{ id: string; h: string }>
   }> {
@@ -855,7 +855,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return { leaves, messageLeafRows }
   }
 
-  async getSyncRange(fromCursor: string, limit: number): Promise<Transition[]> {
+  async getSyncRange (fromCursor: string, limit: number): Promise<Transition[]> {
     const cursor = Number(fromCursor) || 0
     const rows = await this.db
       .prepare(
@@ -880,7 +880,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async upsertContentBlob(hash: string, payload: Uint8Array | string): Promise<void> {
+  async upsertContentBlob (hash: string, payload: Uint8Array | string): Promise<void> {
     const raw = typeof payload === 'string' ? Buffer.from(payload) : Buffer.from(payload)
     await this.db
       .prepare(
@@ -891,7 +891,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async getContentBlob(hash: string): Promise<Uint8Array | undefined> {
+  async getContentBlob (hash: string): Promise<Uint8Array | undefined> {
     const row = await this.db
       .prepare('SELECT payload_blob FROM content_store WHERE hash = ?')
       .bind(hash)
@@ -900,14 +900,14 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return new Uint8Array(row.payload_blob as ArrayBuffer)
   }
 
-  async appendGossipLog(entry: GossipLogEntry): Promise<void> {
+  async appendGossipLog (entry: GossipLogEntry): Promise<void> {
     await this.db
       .prepare('INSERT INTO gossip_log(message_id, peer_node_id, seal_seq, received_at, kind) VALUES(?, ?, ?, ?, ?)')
       .bind(entry.messageId, entry.peerNodeId, entry.sealSeq, entry.receivedAt, entry.kind)
       .run()
   }
 
-  async appendForeignRejected(entry: ForeignRejectedRecord): Promise<void> {
+  async appendForeignRejected (entry: ForeignRejectedRecord): Promise<void> {
     await this.db
       .prepare(
         'INSERT INTO foreign_rejected(adapter_id, foreign_id, reason_code, reason_detail, payload_json, received_at) VALUES(?, ?, ?, ?, ?, ?)',
@@ -923,7 +923,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async upsertForeignSyncState(entry: ForeignSyncStateRecord): Promise<void> {
+  async upsertForeignSyncState (entry: ForeignSyncStateRecord): Promise<void> {
     await this.db
       .prepare(
         `INSERT INTO foreign_sync_state(document_id, adapter_id, adapter_protocol, foreign_id, foreign_vector_clock_json, last_sync_at, conflict_status, last_error)
@@ -950,7 +950,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async getForeignSyncState(documentId: string): Promise<ForeignSyncStateRecord | undefined> {
+  async getForeignSyncState (documentId: string): Promise<ForeignSyncStateRecord | undefined> {
     const row = await this.db
       .prepare(
         `SELECT document_id, adapter_id, adapter_protocol, foreign_id, foreign_vector_clock_json, last_sync_at, conflict_status, last_error
@@ -980,14 +980,14 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }
   }
 
-  async enqueueBridgeOutbound(adapterId: string, messageId: string, availableAt: string): Promise<void> {
+  async enqueueBridgeOutbound (adapterId: string, messageId: string, availableAt: string): Promise<void> {
     await this.db
       .prepare('INSERT INTO bridge_outbound_queue(adapter_id, message_id, attempts, available_at, status) VALUES(?, ?, 0, ?, ?)')
       .bind(adapterId, messageId, availableAt, 'queued')
       .run()
   }
 
-  async dequeueBridgeOutbound(nowIso: string, limit: number): Promise<BridgeOutboundQueueItem[]> {
+  async dequeueBridgeOutbound (nowIso: string, limit: number): Promise<BridgeOutboundQueueItem[]> {
     const rows = await this.db
       .prepare(
         `SELECT id, adapter_id, message_id, attempts, available_at, last_error, status
@@ -1009,7 +1009,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async markBridgeOutboundResult(id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): Promise<void> {
+  async markBridgeOutboundResult (id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): Promise<void> {
     if (status === 'sent') {
       await this.db.prepare('DELETE FROM bridge_outbound_queue WHERE id = ?').bind(id).run()
       return
@@ -1024,7 +1024,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async setSiteStatus(status: SiteStatus, reason?: string): Promise<void> {
+  async setSiteStatus (status: SiteStatus, reason?: string): Promise<void> {
     await this.db
       .prepare(
         `INSERT INTO site_runtime_state(key, value_json, updated_at)
@@ -1035,7 +1035,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async getSiteStatus(): Promise<SiteStatus> {
+  async getSiteStatus (): Promise<SiteStatus> {
     const row = await this.db
       .prepare('SELECT value_json FROM site_runtime_state WHERE key = ?')
       .bind('site_status')
@@ -1052,7 +1052,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     return 'ACTIVE'
   }
 
-  async appendBridgeDeadLetter(entry: BridgeDeadLetterRecord): Promise<void> {
+  async appendBridgeDeadLetter (entry: BridgeDeadLetterRecord): Promise<void> {
     await this.db
       .prepare(
         `INSERT INTO bridge_dead_letter(adapter_id, message_id, payload_json, reason, attempts, next_retry_at, created_at)
@@ -1070,7 +1070,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async dequeueBridgeDeadLetter(nowIso: string, limit: number): Promise<BridgeDeadLetterRecord[]> {
+  async dequeueBridgeDeadLetter (nowIso: string, limit: number): Promise<BridgeDeadLetterRecord[]> {
     const rows = await this.db
       .prepare(
         `SELECT id, adapter_id, message_id, payload_json, reason, attempts, next_retry_at, created_at
@@ -1093,7 +1093,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async markBridgeDeadLetterResult(id: number, success: boolean, nextRetryAt?: string, reason?: string): Promise<void> {
+  async markBridgeDeadLetterResult (id: number, success: boolean, nextRetryAt?: string, reason?: string): Promise<void> {
     if (success) {
       await this.db.prepare('DELETE FROM bridge_dead_letter WHERE id = ?').bind(id).run()
       return
@@ -1110,7 +1110,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async appendSeal0Receipt(receipt: Seal0Receipt): Promise<void> {
+  async appendSeal0Receipt (receipt: Seal0Receipt): Promise<void> {
     await this.db
       .prepare(
         `INSERT INTO seal_0_log(
@@ -1134,7 +1134,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async querySeal0ByDocument(
+  async querySeal0ByDocument (
     documentId: string,
     filters: { since?: string; actorId?: string; limit?: number } = {},
   ): Promise<Seal0Receipt[]> {
@@ -1166,7 +1166,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async querySeal0ByGenre(
+  async querySeal0ByGenre (
     genre: string,
     filters: { since?: string; actorId?: string; limit?: number } = {},
   ): Promise<Seal0Receipt[]> {
@@ -1198,7 +1198,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async appendCensorateAlert(alert: CensorateAlertRecord): Promise<void> {
+  async appendCensorateAlert (alert: CensorateAlertRecord): Promise<void> {
     const id = alert.id ?? `${alert.alertType}:${Date.now()}`
     await this.db
       .prepare(
@@ -1219,7 +1219,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async queryCensorateAlerts(
+  async queryCensorateAlerts (
     window: { since?: string; limit?: number; type?: string } = {},
   ): Promise<CensorateAlertRecord[]> {
     const rows = await this.db
@@ -1245,7 +1245,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  async appendAuditCheckpoint(entry: AuditCheckpointRecord): Promise<void> {
+  async appendAuditCheckpoint (entry: AuditCheckpointRecord): Promise<void> {
     const id = entry.id ?? `checkpoint:${entry.scope}:${entry.createdAt}`
     await this.db
       .prepare(
@@ -1263,7 +1263,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       .run()
   }
 
-  async exportAuditBundle(input: { start?: string; end?: string; merkleRoot?: string }): Promise<unknown> {
+  async exportAuditBundle (input: { start?: string; end?: string; merkleRoot?: string }): Promise<unknown> {
     const reads = await this.db
       .prepare(
         `SELECT *
@@ -1319,19 +1319,19 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
 
     const checkpointQuery = input.merkleRoot
       ? this.db
-          .prepare('SELECT * FROM audit_checkpoints WHERE merkle_root = ? ORDER BY created_at DESC LIMIT 1')
-          .bind(input.merkleRoot)
+        .prepare('SELECT * FROM audit_checkpoints WHERE merkle_root = ? ORDER BY created_at DESC LIMIT 1')
+        .bind(input.merkleRoot)
       : this.db.prepare('SELECT * FROM audit_checkpoints ORDER BY created_at DESC LIMIT 1').bind()
     const checkpoint = await checkpointQuery.first<Record<string, unknown>>()
     const normalizedCheckpoint = checkpoint
       ? {
-          id: String(checkpoint.id),
-          scope: String(checkpoint.scope),
-          merkleRoot: String(checkpoint.merkle_root),
-          sealCount: Number(checkpoint.seal_count),
-          nodeSignatures: JSON.parse(String(checkpoint.node_signatures_json)) as string[],
-          createdAt: String(checkpoint.created_at),
-        }
+        id: String(checkpoint.id),
+        scope: String(checkpoint.scope),
+        merkleRoot: String(checkpoint.merkle_root),
+        sealCount: Number(checkpoint.seal_count),
+        nodeSignatures: JSON.parse(String(checkpoint.node_signatures_json)) as string[],
+        createdAt: String(checkpoint.created_at),
+      }
       : undefined
 
     const proofs = []
@@ -1399,10 +1399,12 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
       ...bundleCore,
       digest: sha256(JSON.stringify(normalizedCheckpoint ?? {})),
       bundle_digest: sha256(JSON.stringify(bundleCore)),
+      verification_scope: 'checkpoint-digest-only',
+      cryptographic_completeness: 'partial',
     }
   }
 
-  private async indexArchivedMessage(messageId: string, sealedAt: string): Promise<void> {
+  private async indexArchivedMessage (messageId: string, sealedAt: string): Promise<void> {
     const message = await this.getMessage(messageId)
     if (!message) return
     const payload = message.payload as Record<string, unknown>
@@ -1473,7 +1475,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
     }
   }
 
-  private async tryExec(sql: string): Promise<void> {
+  private async tryExec (sql: string): Promise<void> {
     try {
       await this.db.exec(sql)
     } catch {

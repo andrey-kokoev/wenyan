@@ -40,11 +40,11 @@ export interface PipelineRuntimeOptions {
   distributedMode?: 'single' | 'consort'
   consensusKind?: 'none' | 'pbft'
   pbftConsensus?: {
-    proposeTiDefinition(proposalId: string, leaderNodeId: string): Promise<unknown> | unknown
-    onPrepare(msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'prepare'; signature: string; at: string }): Promise<boolean> | boolean
-    onCommit(msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'commit'; signature: string; at: string }): Promise<boolean> | boolean
-    commitIfThreshold(proposalId: string): boolean
-    currentView(): number
+    proposeTiDefinition (proposalId: string, leaderNodeId: string): Promise<unknown> | unknown
+    onPrepare (msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'prepare'; signature: string; at: string }): Promise<boolean> | boolean
+    onCommit (msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'commit'; signature: string; at: string }): Promise<boolean> | boolean
+    commitIfThreshold (proposalId: string): boolean
+    currentView (): number
   }
   nodeId?: string
   lawCacheTtlSeconds?: number
@@ -52,7 +52,7 @@ export interface PipelineRuntimeOptions {
   onLawEvent?: (event: LawResolverEvent) => void
 }
 
-function transition(
+function transition (
   message: MessageEnvelope,
   fromState: Transition['fromState'],
   toState: Transition['toState'],
@@ -71,7 +71,7 @@ function transition(
   }
 }
 
-function destinationList(message: MessageEnvelope): string[] {
+function destinationList (message: MessageEnvelope): string[] {
   const raw = (message.payload as Record<string, unknown>).routing as Record<string, unknown> | undefined
   const dest = raw?.destination
   if (Array.isArray(dest)) return dest.map((v) => String(v))
@@ -79,12 +79,12 @@ function destinationList(message: MessageEnvelope): string[] {
   return []
 }
 
-function destinationCount(message: MessageEnvelope): number {
+function destinationCount (message: MessageEnvelope): number {
   const count = destinationList(message).length
   return count === 0 ? 1 : count
 }
 
-function extractClearance(message: MessageEnvelope): string | undefined {
+function extractClearance (message: MessageEnvelope): string | undefined {
   const metadata = message.metadata as Record<string, unknown>
   if (typeof metadata.clearance === 'string') return metadata.clearance
   const routing = (message.payload as Record<string, unknown>).routing as Record<string, unknown> | undefined
@@ -92,7 +92,7 @@ function extractClearance(message: MessageEnvelope): string | undefined {
   return undefined
 }
 
-function parseRoutingObject(message: MessageEnvelope): Record<string, unknown> {
+function parseRoutingObject (message: MessageEnvelope): Record<string, unknown> {
   const payload = message.payload as Record<string, unknown>
   const routing = payload.routing
   if (routing && typeof routing === 'object' && !Array.isArray(routing)) {
@@ -101,7 +101,7 @@ function parseRoutingObject(message: MessageEnvelope): Record<string, unknown> {
   return {}
 }
 
-function withRouting(message: MessageEnvelope, routing: Record<string, unknown>): MessageEnvelope {
+function withRouting (message: MessageEnvelope, routing: Record<string, unknown>): MessageEnvelope {
   return {
     ...message,
     payload: {
@@ -111,7 +111,7 @@ function withRouting(message: MessageEnvelope, routing: Record<string, unknown>)
   }
 }
 
-function withLawSnapshot(message: MessageEnvelope, atIso: string): MessageEnvelope {
+function withLawSnapshot (message: MessageEnvelope, atIso: string): MessageEnvelope {
   return {
     ...message,
     metadata: {
@@ -123,7 +123,7 @@ function withLawSnapshot(message: MessageEnvelope, atIso: string): MessageEnvelo
   }
 }
 
-function lawSnapshotAt(message: MessageEnvelope): string {
+function lawSnapshotAt (message: MessageEnvelope): string {
   const metadata = message.metadata as Record<string, unknown>
   const raw = metadata.law_snapshot
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -133,7 +133,7 @@ function lawSnapshotAt(message: MessageEnvelope): string {
   return message.submittedAt
 }
 
-function resolverFor(repo: ArchiveRepository, options: PipelineRuntimeOptions = {}): LawResolver {
+function resolverFor (repo: ArchiveRepository, options: PipelineRuntimeOptions = {}): LawResolver {
   if (options.lawResolver) return options.lawResolver
 
   const resolverOptions: LawResolverOptions = {
@@ -145,7 +145,7 @@ function resolverFor(repo: ArchiveRepository, options: PipelineRuntimeOptions = 
   return new LawResolver(repo, resolverOptions)
 }
 
-function maybeInvalidateLawFromMessage(resolver: LawResolver, message: MessageEnvelope): void {
+function maybeInvalidateLawFromMessage (resolver: LawResolver, message: MessageEnvelope): void {
   if (message.genre !== 'edict') return
   const payload = message.payload as Record<string, unknown>
   const rawLawType = payload.law_type
@@ -156,7 +156,7 @@ function maybeInvalidateLawFromMessage(resolver: LawResolver, message: MessageEn
   resolver.invalidate()
 }
 
-async function appendNextTransition(
+async function appendNextTransition (
   repo: ArchiveRepository,
   message: MessageEnvelope,
   fromState: Transition['fromState'],
@@ -167,14 +167,14 @@ async function appendNextTransition(
   await repo.appendTransition(transition(message, fromState, toState, sequenceNo, reason))
 }
 
-export function caoni(message: MessageEnvelope): MessageEnvelope {
+export function caoni (message: MessageEnvelope): MessageEnvelope {
   return {
     ...message,
     payload: Object.fromEntries(Object.entries(message.payload).map(([k, v]) => [k.trim(), v])),
   }
 }
 
-export function shenfu(message: MessageEnvelope): { ok: true } | { ok: false; reason: string } {
+export function shenfu (message: MessageEnvelope): { ok: true } | { ok: false; reason: string } {
   if (Object.keys(message.payload).length === 0) {
     return { ok: false, reason: 'empty-payload' }
   }
@@ -184,7 +184,7 @@ export function shenfu(message: MessageEnvelope): { ok: true } | { ok: false; re
   return { ok: true }
 }
 
-async function shenfuSchema(
+async function shenfuSchema (
   message: MessageEnvelope,
   repo: ArchiveRepository,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -218,7 +218,7 @@ async function shenfuSchema(
   return { ok: true }
 }
 
-function appointmentAllowsGenre(
+function appointmentAllowsGenre (
   message: MessageEnvelope,
   appointmentLaw: AppointmentLawContent,
 ): boolean {
@@ -226,7 +226,7 @@ function appointmentAllowsGenre(
   return allowed.includes('*') || allowed.includes(message.genre)
 }
 
-async function applyRoutingLaw(
+async function applyRoutingLaw (
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true; message: MessageEnvelope } | { ok: false; reason: string }> {
@@ -264,7 +264,7 @@ async function applyRoutingLaw(
   return { ok: true, message }
 }
 
-async function reviewByLaw(
+async function reviewByLaw (
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -296,7 +296,7 @@ async function reviewByLaw(
   return { ok: true }
 }
 
-async function authorizeByLaw(
+async function authorizeByLaw (
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -324,7 +324,7 @@ async function authorizeByLaw(
   return { ok: true }
 }
 
-async function classificationCheck(
+async function classificationCheck (
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -351,7 +351,7 @@ async function classificationCheck(
   return { ok: true }
 }
 
-async function requiredAcksByLaw(
+async function requiredAcksByLaw (
   resolver: LawResolver,
   message: MessageEnvelope,
 ): Promise<{ ok: true; required: number } | { ok: false; reason: string }> {
@@ -372,7 +372,7 @@ async function requiredAcksByLaw(
   return { ok: true, required: law.content.required_acks_by_genre[message.genre] ?? destinationCount(message) }
 }
 
-async function applySealsAndArchive(
+async function applySealsAndArchive (
   repo: ArchiveRepository,
   message: MessageEnvelope,
   sealContext: SealContext,
@@ -399,13 +399,13 @@ async function applySealsAndArchive(
   return { messageId: message.id, finalState: 'archived' }
 }
 
-function mapSealFailure(error: unknown): string | undefined {
+function mapSealFailure (error: unknown): string | undefined {
   if (error instanceof InsufficientImperialAuthorityError) return 'insufficient-imperial-authority'
   if (error instanceof SealInvalidError) return 'invalid-seal-chain'
   return undefined
 }
 
-export async function finalizePendingMessage(
+export async function finalizePendingMessage (
   repo: ArchiveRepository,
   messageId: string,
   sealContext: SealContext,
@@ -454,7 +454,7 @@ export async function finalizePendingMessage(
   }
 }
 
-export async function processDocketMessage(
+export async function processDocketMessage (
   repo: ArchiveRepository,
   messageId: string,
   sealContext: SealContext,

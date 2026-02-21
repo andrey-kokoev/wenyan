@@ -6,7 +6,7 @@ import { SqliteArchiveRepository } from '@andrey-kokoev/wenyan-archive/sqlite'
 import { parseBootstrapConfigToml, type BootstrapConfig, type EdictLawType, type MessageEnvelope, type Transition } from '@andrey-kokoev/wenyan-core'
 import { DEV_SEAL_CONTEXT, InsufficientImperialAuthorityError, createSealChain, verifySealChain, type SealContext } from '@andrey-kokoev/wenyan-seal'
 
-function keyHexFromBase64(base64: string): string {
+function keyHexFromBase64 (base64: string): string {
   const raw = Buffer.from(base64, 'base64')
   if (raw.length !== 32) {
     throw new Error('genesis.genesis_key must decode to 32 bytes for ed25519 seed')
@@ -14,7 +14,7 @@ function keyHexFromBase64(base64: string): string {
   return raw.toString('hex')
 }
 
-function genesisSealContext(config: BootstrapConfig): SealContext {
+function genesisSealContext (config: BootstrapConfig): SealContext {
   const keyHex = keyHexFromBase64(config.genesis.genesis_key)
   return {
     ...DEV_SEAL_CONTEXT,
@@ -33,7 +33,7 @@ function genesisSealContext(config: BootstrapConfig): SealContext {
   }
 }
 
-function buildConfigText(config: BootstrapConfig): string {
+function buildConfigText (config: BootstrapConfig): string {
   const preload = (config.law_cache?.preload_types ?? ['appointment', 'classification'])
     .map((x) => `"${x}"`)
     .join(', ')
@@ -76,7 +76,7 @@ mode = "${config.bridge.mode}"
 `
 }
 
-function defaultConfig(): BootstrapConfig {
+function defaultConfig (): BootstrapConfig {
   return {
     archive: {
       engine: 'sqlite',
@@ -98,7 +98,7 @@ function defaultConfig(): BootstrapConfig {
       jwt_issuer: 'wenyan.local',
       jwt_audience: 'wenyan-gateway',
       jwt_alg: 'HS256',
-      jwt_secret: 'wenyan-local-jwt-secret',
+      jwt_secret: randomBytes(32).toString('hex'),
       allow_header_actor: false,
     },
     law: {
@@ -146,7 +146,7 @@ function defaultConfig(): BootstrapConfig {
   }
 }
 
-function makeTiDefinition(targetGenre: string, schema: Record<string, unknown>, actorId: string): MessageEnvelope {
+function makeTiDefinition (targetGenre: string, schema: Record<string, unknown>, actorId: string): MessageEnvelope {
   return {
     id: `ti-${targetGenre}-${randomUUID()}`,
     genre: 'ti_definition',
@@ -161,7 +161,7 @@ function makeTiDefinition(targetGenre: string, schema: Record<string, unknown>, 
   }
 }
 
-function makeEdict(
+function makeEdict (
   lawType: EdictLawType,
   content: Record<string, unknown>,
   actorId: string,
@@ -182,7 +182,7 @@ function makeEdict(
   }
 }
 
-async function appendArchived(repo: ArchiveRepository, message: MessageEnvelope, sealContext: SealContext): Promise<void> {
+async function appendArchived (repo: ArchiveRepository, message: MessageEnvelope, sealContext: SealContext): Promise<void> {
   await repo.appendMessage(message)
   const seals = await createSealChain(message, sealContext)
   const valid = await verifySealChain(message, seals, sealContext)
@@ -202,7 +202,7 @@ async function appendArchived(repo: ArchiveRepository, message: MessageEnvelope,
   await repo.appendTransition(transition)
 }
 
-export async function applyGenesis(
+export async function applyGenesis (
   repo: ArchiveRepository,
   config: BootstrapConfig,
   sealContext = genesisSealContext(config),
@@ -276,7 +276,7 @@ export async function applyGenesis(
   return { applied, skipped }
 }
 
-export async function createEmptyOffice(dir: string, config: BootstrapConfig = defaultConfig()): Promise<{ configPath: string; dbPath: string }> {
+export async function createEmptyOffice (dir: string, config: BootstrapConfig = defaultConfig()): Promise<{ configPath: string; dbPath: string }> {
   const officeDir = resolve(dir)
   await mkdir(officeDir, { recursive: true })
 
@@ -292,7 +292,7 @@ export async function createEmptyOffice(dir: string, config: BootstrapConfig = d
   return { configPath: cfgPath, dbPath }
 }
 
-export async function applyGenesisFromDir(dir = '.'): Promise<{ applied: number; skipped: number }> {
+export async function applyGenesisFromDir (dir = '.'): Promise<{ applied: number; skipped: number }> {
   const officeDir = resolve(dir)
   const cfgPath = resolve(officeDir, 'wenyan.toml')
   const dbPath = resolve(officeDir, "wenyan.dang'an")

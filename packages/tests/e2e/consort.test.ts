@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { SqliteArchiveRepository } from '../../archive/src/sqlite'
 import { buildGateway } from '../../gateway/src/index'
 import { ReliableChannel } from '../../channel/src/index'
@@ -9,6 +10,7 @@ import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
 import { createEmptyOffice, applyGenesisFromDir } from '../../genesis/src/index'
 import { SwimMembership } from '../../gossip/src/index'
 import { createPbftFixture } from './pbft-helpers'
+import { waitForState, withAuth } from './helpers'
 
 const tempDirs = new Set<string>()
 
@@ -17,7 +19,7 @@ afterEach(() => {
   tempDirs.clear()
 })
 
-async function setupOffice(name: string): Promise<{ dir: string; repo: SqliteArchiveRepository }> {
+async function setupOffice (name: string): Promise<{ dir: string; repo: SqliteArchiveRepository }> {
   const dir = mkdtempSync(join(tmpdir(), `wenyan-consort-${name}-`))
   tempDirs.add(dir)
   await createEmptyOffice(dir)
@@ -25,31 +27,42 @@ async function setupOffice(name: string): Promise<{ dir: string; repo: SqliteArc
   const repo = new SqliteArchiveRepository(resolve(dir, "wenyan.dang'an"))
   repo.initialize()
   repo.migrate()
+  const seedId = `edict-access-control-${randomUUID()}`
+  repo.appendMessage({
+    id: seedId,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+        query_hash_only: true,
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: seedId,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
   return { dir, repo }
-}
-
-async function waitForState(
-  app: ReturnType<typeof buildGateway>,
-  id: string,
-  expected: string,
-  timeoutMs = 5000,
-): Promise<{ state: string; transitions: Array<{ reason?: string }> }> {
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    const status = await app.request(`/messages/${id}`)
-    if (status.status === 200) {
-      const payload = await status.json() as { state: string; transitions: Array<{ reason?: string }> }
-      if (payload.state === expected) return payload
-    }
-    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
-  }
-  throw new Error(`timeout waiting for ${id} -> ${expected}`)
 }
 
 describe('Consort protocol', () => {
   it('keeps single mode strict gateway behavior', async () => {
     const { repo } = await setupOffice('single')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { distributedMode: 'single', lawMode: 'strict' })
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, { distributedMode: 'single', lawMode: 'strict' }))
 
     const res = await app.request('/messages', {
       method: 'POST',
@@ -72,7 +85,7 @@ describe('Consort protocol', () => {
   it('exposes mesh join/sync/status endpoints in consort mode', async () => {
     const { repo } = await setupOffice('mesh')
     const membership = new SwimMembership(5000)
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, {
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT, {
       distributedMode: 'consort',
       lawMode: 'strict',
       meshMembers: () => membership.list(),
@@ -82,7 +95,7 @@ describe('Consort protocol', () => {
         return { ok: true, detail: `joined ${peer}` }
       },
       onMeshSync: async () => ({ ok: true, fetched: 0 }),
-    })
+    }))
 
     const joinRes = await app.request('/mesh/join', {
       method: 'POST',
@@ -112,13 +125,13 @@ describe('Consort protocol', () => {
     const { repo } = await setupOffice('pbft')
     const { pbft } = await createPbftFixture(['node-a', 'node-b', 'node-c', 'node-d'], 3)
 
-    const app = buildGateway(repo, new ReliableChannel(), { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-a', 'sig-b', 'sig-c'] }, {
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-a', 'sig-b', 'sig-c'] }, {
       distributedMode: 'consort',
       consensusKind: 'pbft',
       pbftConsensus: pbft,
       nodeId: 'node-a',
       lawMode: 'strict',
-    })
+    }))
 
     const res = await app.request('/messages', {
       method: 'POST',

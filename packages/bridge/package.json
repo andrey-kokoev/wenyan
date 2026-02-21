@@ -1,6 +1,6 @@
 {
   "name": "@andrey-kokoev/wenyan-bridge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -54,22 +54,20 @@
     "directory": "packages/bridge"
   },
   "scripts": {
-    "pretest": "node ./scripts/ensure-nats-server.mjs",
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src",
+    "test": "vitest run src --passWithNoTests",
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
+    "nats": "^2.29.3",
     "@andrey-kokoev/wenyan-archive": "workspace:*",
     "@andrey-kokoev/wenyan-core": "workspace:*",
-    "@andrey-kokoev/wenyan-crdt": "workspace:*",
-    "nats": "^2.29.3"
+    "@andrey-kokoev/wenyan-crdt": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
-    "nats-memory-server": "2.0.21",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

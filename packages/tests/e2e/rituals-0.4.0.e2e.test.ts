@@ -13,6 +13,7 @@ import { compareVectorClock, mergeEdict, resolveConcurrentEdict, type EdictLike 
 import { syncWithPeer } from '../../archive/src/sync'
 import type { MessageEnvelope } from '../../core/src/index'
 import { createPbftFixture } from './pbft-helpers'
+import { waitForState, issueToken } from './helpers'
 
 const tempDirs = new Set<string>()
 const THREE_IMPERIAL = { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-1', 'sig-2', 'sig-3'] }
@@ -22,7 +23,7 @@ afterEach(() => {
   tempDirs.clear()
 })
 
-async function setupOffice(name: string): Promise<{ dir: string; repo: SqliteArchiveRepository }> {
+async function setupOffice (name: string): Promise<{ dir: string; repo: SqliteArchiveRepository }> {
   const dir = mkdtempSync(join(tmpdir(), `wenyan-ritual-04-${name}-`))
   tempDirs.add(dir)
   await createEmptyOffice(dir)
@@ -30,10 +31,41 @@ async function setupOffice(name: string): Promise<{ dir: string; repo: SqliteArc
   const repo = new SqliteArchiveRepository(resolve(dir, "wenyan.dang'an"))
   repo.initialize()
   repo.migrate()
+  const seedId = `edict-access-control-${randomUUID()}`
+  repo.appendMessage({
+    id: seedId,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: {
+          genesis_admin: ['*'],
+        },
+        query_hash_only: true,
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: seedId,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
   return { dir, repo }
 }
 
-function baseMessage(genre: string, payload: Record<string, unknown>): MessageEnvelope {
+function baseMessage (genre: string, payload: Record<string, unknown>): MessageEnvelope {
   return {
     id: `${genre}-${randomUUID()}`,
     genre,
@@ -44,43 +76,50 @@ function baseMessage(genre: string, payload: Record<string, unknown>): MessageEn
   }
 }
 
-async function waitForState(
+async function waitForState (
   app: ReturnType<typeof buildGateway>,
   id: string,
   expected: string,
   timeoutMs = 5000,
+  intervalMs = 50,
+  options?: { headers?: Record<string, string> },
 ): Promise<{ state: string; transitions: Array<{ reason?: string }>; message: MessageEnvelope; seals: SealRecord[] }> {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
-    const res = await app.request(`/messages/${id}`)
+    const res = await app.request(`/messages/${id}`, {
+      headers: options?.headers,
+    })
     if (res.status === 200) {
       const payload = await res.json() as { state: string; transitions: Array<{ reason?: string }>; message: MessageEnvelope; seals: SealRecord[] }
       if (payload.state === expected) return payload
     }
-    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, intervalMs))
   }
   throw new Error(`timeout waiting for ${id} -> ${expected}`)
 }
 
-async function ensureGenre(app: ReturnType<typeof buildGateway>, genre: string, schema: Record<string, unknown>): Promise<void> {
+async function ensureGenre (app: ReturnType<typeof buildGateway>, genre: string, schema: Record<string, unknown>): Promise<void> {
   const ti = baseMessage('ti_definition', {
     target_genre: genre,
     version: '1.0.0',
     schema,
   })
+  ti.actor.id = 'ensure-genre-actor'
   const res = await app.request('/messages', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
     body: JSON.stringify(ti),
   })
   expect(res.status).toBe(202)
-  await waitForState(app, ti.id, 'archived')
+  await waitForState(app, ti.id, 'archived', 5000, 50, {
+    headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+  })
 }
 
-async function submit(app: ReturnType<typeof buildGateway>, message: MessageEnvelope): Promise<Response> {
+async function submit (app: ReturnType<typeof buildGateway>, message: MessageEnvelope, headers?: Record<string, string>): Promise<Response> {
   return app.request('/messages', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(message),
   })
 }
@@ -102,10 +141,19 @@ describe('Wenyan v0.4.0 rituals', () => {
 
     await ensureGenre(app, 'petition', { type: 'object', required: ['title'] })
     const petition = baseMessage('petition', { title: 'relay to court' })
-    const submitted = await submit(app, petition)
+    const submitted = await submit(app, petition, { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })
+    if (submitted.status !== 202) {
+      console.error('Ritual 1 submit failed:', await submitted.text())
+    }
     expect(submitted.status).toBe(202)
 
-    const payload = await waitForState(app, petition.id, 'archived')
+    const payload = await waitForState(app, petition.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    }) as unknown as {
+      state: string
+      message: MessageEnvelope
+      seals: SealRecord[]
+    }
     expect(payload.state).toBe('archived')
     expect(payload.seals).toHaveLength(6)
     expect(await verifySealChain(payload.message, payload.seals, THREE_IMPERIAL)).toBe(true)
@@ -134,6 +182,7 @@ describe('Wenyan v0.4.0 rituals', () => {
     })
     const res = await submit(app, proposal)
     expect(res.status).toBe(202)
+
 
     const json = await waitForState(app, proposal.id, 'pending')
     expect(json.state).toBe('pending')
@@ -175,8 +224,12 @@ describe('Wenyan v0.4.0 rituals', () => {
     const app = buildGateway(source, new ReliableChannel(), THREE_IMPERIAL, { lawMode: 'strict' })
     await ensureGenre(app, 'dispatch', { type: 'object', required: ['title'] })
     for (let i = 0; i < 5; i += 1) {
-      const r = await submit(app, baseMessage('dispatch', { title: `dispatch-${i}` }))
+      const r = await submit(app, baseMessage('dispatch', { title: `dispatch-${i}` }), { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })
       expect(r.status).toBe(202)
+      const id = (await r.json() as { id: string }).id
+      await waitForState(app, id, 'archived', 5000, 50, {
+        headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+      })
     }
 
     const targetDir = mkdtempSync(join(tmpdir(), 'wenyan-ritual-04-sync-target-'))
@@ -262,14 +315,21 @@ describe('Wenyan v0.4.0 rituals', () => {
     await ensureGenre(app, 'petition', { type: 'object', required: ['title'] })
 
     const valid = baseMessage('petition', { title: 'valid' })
-    const ok = await submit(app, valid)
+    const ok = await submit(app, valid, { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` })
     expect(ok.status).toBe(202)
+    await waitForState(app, valid.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
 
-    const details = await waitForState(app, valid.id, 'archived')
+    const details = await waitForState(app, valid.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
     const tampered = details.seals.map((seal, idx) => (idx === 2 ? { ...seal, signature: '00ff' } : seal))
     expect(await verifySealChain(details.message, tampered, THREE_IMPERIAL)).toBe(false)
 
-    const stillValid = await app.request(`/messages/${valid.id}`)
+    const stillValid = await app.request(`/messages/${valid.id}`, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
     expect(stillValid.status).toBe(200)
     repo.close()
   })

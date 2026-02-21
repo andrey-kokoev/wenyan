@@ -13,6 +13,7 @@ import type { AdapterContext, BridgeAdapter, ForeignMetadata, FromWenyan, IntoWe
 import { parseBootstrapConfig } from '../../core/src/bootstrap'
 import type { MessageEnvelope } from '../../core/src/index'
 import type { NatsBridgeAdapterConfig } from '../../core/src/bootstrap'
+import { issueToken, waitForState } from './helpers'
 
 const tempDirs = new Set<string>()
 
@@ -22,8 +23,8 @@ afterEach(() => {
 })
 
 class FakeInto implements IntoWenyan<unknown> {
-  constructor(private readonly genre: string) {}
-  translate(payload: unknown, metadata: ForeignMetadata): TranslationResult {
+  constructor(private readonly genre: string) { }
+  translate (payload: unknown, metadata: ForeignMetadata): TranslationResult {
     const data = payload as { body?: Record<string, unknown> }
     return {
       ok: true,
@@ -43,19 +44,19 @@ class FakeInto implements IntoWenyan<unknown> {
       },
     }
   }
-  extractIdempotencyKey(_payload: unknown, metadata: ForeignMetadata): string {
+  extractIdempotencyKey (_payload: unknown, metadata: ForeignMetadata): string {
     return metadata.headers['Foreign-Id'] ?? `f-${Date.now()}`
   }
-  async verifyProvenance(): Promise<boolean> {
+  async verifyProvenance (): Promise<boolean> {
     return true
   }
 }
 
 class FakeFrom implements FromWenyan<Record<string, unknown>> {
-  translate(document: MessageEnvelope): Record<string, unknown> {
+  translate (document: MessageEnvelope): Record<string, unknown> {
     return { payload: document.payload, seal6: document.id }
   }
-  reconcile(local: Record<string, unknown>): Record<string, unknown> {
+  reconcile (local: Record<string, unknown>): Record<string, unknown> {
     return local
   }
 }
@@ -82,24 +83,24 @@ class FakeBridgeAdapter implements BridgeAdapter {
     this.into = new FakeInto(targetGenre)
     this.from = new FakeFrom() as FromWenyan<unknown>
   }
-  async start(ctx: AdapterContext): Promise<void> {
+  async start (ctx: AdapterContext): Promise<void> {
     this.ctx = ctx
   }
-  async stop(): Promise<void> {}
-  async health(): Promise<{ ok: boolean }> {
+  async stop (): Promise<void> { }
+  async health (): Promise<{ ok: boolean }> {
     return { ok: true }
   }
-  async publishOutbound(document: MessageEnvelope): Promise<{ foreignId: string }> {
+  async publishOutbound (document: MessageEnvelope): Promise<{ foreignId: string }> {
     this.published.push({ id: document.id })
     return { foreignId: `${this.id}:${document.id}` }
   }
-  async ingest(payload: unknown, metadata: ForeignMetadata): Promise<void> {
+  async ingest (payload: unknown, metadata: ForeignMetadata): Promise<void> {
     if (!this.ctx) throw new Error('adapter not started')
     await this.ctx.onInbound(this, payload, metadata)
   }
 }
 
-async function setupOffice(name: string): Promise<{ repo: SqliteArchiveRepository; app: ReturnType<typeof buildGateway>; dir: string }> {
+async function setupOffice (name: string): Promise<{ repo: SqliteArchiveRepository; app: ReturnType<typeof buildGateway>; dir: string }> {
   const dir = mkdtempSync(join(tmpdir(), `wenyan-ritual-v050-${name}-`))
   tempDirs.add(dir)
   await createEmptyOffice(dir)
@@ -107,29 +108,42 @@ async function setupOffice(name: string): Promise<{ repo: SqliteArchiveRepositor
   const repo = new SqliteArchiveRepository(resolve(dir, "wenyan.dang'an"))
   repo.initialize()
   repo.migrate()
+  const seedId = `ac-bridge-${Date.now()}`
+  repo.appendMessage({
+    id: seedId,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+        query_hash_only: true,
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: seedId,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
   const app = buildGateway(repo, new ReliableChannel(), { ...DEV_SEAL_CONTEXT, imperialSignatures: ['a', 'b', 'c'] }, { lawMode: 'strict' })
   return { repo, app, dir }
 }
 
-async function waitForState(
-  app: ReturnType<typeof buildGateway>,
-  id: string,
-  expected: string,
-  timeoutMs = 5000,
-): Promise<void> {
-  const start = Date.now()
-  while (Date.now() - start < timeoutMs) {
-    const res = await app.request(`/messages/${id}`)
-    if (res.status === 200) {
-      const json = await res.json() as { state?: string }
-      if (json.state === expected) return
-    }
-    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
-  }
-  throw new Error(`timeout waiting for ${id} -> ${expected}`)
-}
 
-function withGatewayFetch(app: ReturnType<typeof buildGateway>, base = 'http://bridge.local') {
+
+function withGatewayFetch (app: ReturnType<typeof buildGateway>, base = 'http://bridge.local') {
   const original = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const raw = typeof input === 'string' ? input : input.toString()
@@ -154,7 +168,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
     const bootstrap = parseBootstrapConfig({
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000010', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
-      gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+      gateway: { listen: { host: '127.0.0.1', port: 8787 }, stream_mode: 'sse' },
       bridge: {
         enabled: true,
         adapters: [adapter.config],
@@ -189,10 +203,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
       },
     )
 
-    await waitForState(app, 'seq-42', 'archived')
-    const archived = await app.request('/messages/seq-42')
-    const json = await archived.json() as { message: MessageEnvelope; seals: unknown[] }
-    expect(archived.status).toBe(200)
+    const json = await waitForState(app, 'seq-42', 'archived') as unknown as { message: MessageEnvelope; seals: unknown[] }
     expect(json.seals).toHaveLength(6)
     expect((json.message.metadata as Record<string, unknown>).foreign_headers).toBeUndefined()
 
@@ -210,7 +221,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
     const bootstrap = parseBootstrapConfig({
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000011', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
-      gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+      gateway: { listen: { host: '127.0.0.1', port: 8787 }, stream_mode: 'sse' },
       bridge: { enabled: true, adapters: [adapter.config], sync: { mode: 'poll', poll_interval_ms: 50, batch_size: 100 } },
     })
     const bridge = new BridgeGateway({ bootstrap, archive: repo, apiBaseUrl: 'http://bridge.local/api/wenyan', adapters: [adapter] })
@@ -226,7 +237,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
     const bootstrap = parseBootstrapConfig({
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000012', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
-      gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+      gateway: { listen: { host: '127.0.0.1', port: 8787 }, stream_mode: 'sse' },
       bridge: { enabled: true, adapters: [adapter.config], sync: { mode: 'poll', poll_interval_ms: 50, batch_size: 100 } },
     })
     const bridge = new BridgeGateway({ bootstrap, archive: repo, apiBaseUrl: 'http://bridge.local/api/wenyan', adapters: [adapter] })
@@ -234,7 +245,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
 
     const submitRes = await app.request('/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${issueToken('a', 'genesis_admin')}` },
       body: JSON.stringify({
         id: 'edict-outbound-1',
         genre: 'edict',

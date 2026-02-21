@@ -58,8 +58,13 @@ export class CheckpointService {
 
   verifyBundle(bundle: unknown): boolean {
     if (!bundle || typeof bundle !== 'object') return false
-    const typed = bundle as { checkpoint?: { merkleRoot?: string }; digest?: string }
+    const typed = bundle as {
+      checkpoint?: { merkleRoot?: string }
+      digest?: string
+      verification_scope?: string
+    }
     if (!typed.checkpoint?.merkleRoot || !typed.digest) return false
+    if (typed.verification_scope && typed.verification_scope !== 'checkpoint-digest-only') return false
     const actual = createHash('sha256').update(JSON.stringify(typed.checkpoint)).digest('hex')
     return actual === typed.digest
   }

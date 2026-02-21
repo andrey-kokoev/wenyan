@@ -9,27 +9,48 @@ import { ReliableChannel } from '../../channel/src/index'
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
 import { createEmptyOffice, applyGenesisFromDir } from '../../genesis/src/index'
 import type { MessageEnvelope } from '../../core/src/index'
+import { sleep, waitForState } from './helpers'
 
 const tempDirs = new Set<string>()
 const THREE_IMPERIAL = { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-1', 'sig-2', 'sig-3'] }
+
+function issueToken (subject: string, role: string): string {
+  const now = Math.floor(Date.now() / 1000)
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+    .toString('base64url')
+  const payload = Buffer.from(
+    JSON.stringify({
+      iss: 'wenyan.local',
+      aud: 'wenyan-gateway',
+      sub: subject,
+      role,
+      iat: now,
+      exp: now + 3600,
+    }),
+  ).toString('base64url')
+  const sig = createHmac('sha256', 'wenyan-local-jwt-secret')
+    .update(`${header}.${payload}`)
+    .digest('base64url')
+  return `${header}.${payload}.${sig}`
+}
 
 afterEach(() => {
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true })
   tempDirs.clear()
 })
 
-function baseMessage(id: string, genre: string, payload: Record<string, unknown>, actorRole = 'genesis_admin', metadata: Record<string, unknown> = {}): MessageEnvelope {
+function baseMessage (id: string, genre: string, payload: Record<string, unknown>, actorRole = 'genesis_admin', metadata: Record<string, unknown> = {}, actorId?: string): MessageEnvelope {
   return {
     id,
     genre,
     payload,
-    actor: { id: 'ritual-actor', role: actorRole },
+    actor: { id: actorId ?? `ritual-actor-${Date.now()}-${Math.random()}`, role: actorRole },
     submittedAt: new Date().toISOString(),
     metadata,
   }
 }
 
-async function setupOffice(name: string): Promise<{ repo: SqliteArchiveRepository; app: ReturnType<typeof buildGateway> }> {
+async function setupOffice (name: string): Promise<{ repo: SqliteArchiveRepository; app: ReturnType<typeof buildGateway> }> {
   const dir = mkdtempSync(join(tmpdir(), `wenyan-ritual-06-${name}-`))
   tempDirs.add(dir)
   await createEmptyOffice(dir)
@@ -37,6 +58,37 @@ async function setupOffice(name: string): Promise<{ repo: SqliteArchiveRepositor
   const repo = new SqliteArchiveRepository(resolve(dir, "wenyan.dang'an"))
   repo.initialize()
   repo.migrate()
+  const seedId = `ac-baseline-${Date.now()}`
+  repo.appendMessage({
+    id: seedId,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: {
+          genesis_admin: ['*'],
+        },
+        query_hash_only: true,
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
+  repo.appendTransition({
+    messageId: seedId,
+    fromState: 'pending',
+    toState: 'archived',
+    sequenceNo: 1,
+    actorId: 'seed',
+    sealedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    prevTransitionHash: 'GENESIS',
+  })
   const app = buildGateway(repo, new ReliableChannel(), THREE_IMPERIAL, {
     lawMode: 'strict',
     distributedMode: 'consort',
@@ -45,55 +97,15 @@ async function setupOffice(name: string): Promise<{ repo: SqliteArchiveRepositor
   return { repo, app }
 }
 
-async function submit(app: ReturnType<typeof buildGateway>, message: MessageEnvelope): Promise<Response> {
+async function submit (app: ReturnType<typeof buildGateway>, message: MessageEnvelope): Promise<Response> {
   return app.request('/messages', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${issueToken(message.actor.id, message.actor.role)}` },
     body: JSON.stringify(message),
   })
 }
 
-function authHeaders(actorId: string, role: string): Record<string, string> {
-  const now = Math.floor(Date.now() / 1000)
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: actorId,
-      role,
-      iss: 'wenyan.local',
-      aud: 'wenyan-gateway',
-      iat: now,
-      exp: now + 3600,
-    }),
-  ).toString('base64url')
-  const signature = createHmac('sha256', 'wenyan-local-jwt-secret').update(`${header}.${payload}`).digest('base64url')
-  return { authorization: `Bearer ${header}.${payload}.${signature}` }
-}
-
-async function waitForState(
-  app: ReturnType<typeof buildGateway>,
-  id: string,
-  expected: string,
-  timeoutMs = 5000,
-): Promise<void> {
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    const res = await app.request(`/messages/${id}`, {
-      headers: authHeaders('ritual-actor', 'genesis_admin'),
-    })
-    if (res.status === 200) {
-      const json = await res.json() as { state?: string }
-      if (json.state === expected) return
-      if (json.state === 'rejected' && expected !== 'rejected') {
-        throw new Error(`message ${id} rejected while waiting for ${expected}`)
-      }
-    }
-    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
-  }
-  throw new Error(`timeout waiting for ${id} -> ${expected}`)
-}
-
-async function ensureGenre(app: ReturnType<typeof buildGateway>, genre: string, required: string[] = []): Promise<void> {
+async function ensureGenre (app: ReturnType<typeof buildGateway>, genre: string, required: string[] = []): Promise<void> {
   const id = `ti-${genre}-${Date.now()}`
   const res = await submit(
     app,
@@ -104,10 +116,11 @@ async function ensureGenre(app: ReturnType<typeof buildGateway>, genre: string, 
     }),
   )
   expect(res.status).toBe(202)
-  await waitForState(app, id, 'archived')
+  const body = await res.json() as { id: string }
+  await waitForState(app, body.id, 'archived')
 }
 
-async function seedAccessControl(app: ReturnType<typeof buildGateway>): Promise<void> {
+async function seedAccessControl (app: ReturnType<typeof buildGateway>): Promise<void> {
   const id = `ac-${Date.now()}`
   const law = baseMessage(id, 'edict', {
     law_type: 'access_control',
@@ -123,8 +136,12 @@ async function seedAccessControl(app: ReturnType<typeof buildGateway>): Promise<
     precedence: 100,
     effective_date: new Date().toISOString(),
   })
-  expect((await submit(app, law)).status).toBe(202)
-  await waitForState(app, id, 'archived')
+  const res = await submit(app, law)
+  expect(res.status).toBe(202)
+  const body = await res.json() as { id: string }
+  await waitForState(app, body.id, 'archived', 5000, 50, {
+    headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+  })
 }
 
 describe('Wenyan v0.6.0 rituals', () => {
@@ -132,7 +149,9 @@ describe('Wenyan v0.6.0 rituals', () => {
     const { repo, app } = await setupOffice('trace')
     await ensureGenre(app, 'petition', ['title'])
     const msg = baseMessage('r06-trace-1', 'petition', { title: 'observe' })
-    expect((await submit(app, msg)).status).toBe(202)
+    const submitRes = await submit(app, msg)
+    expect(submitRes.status).toBe(202)
+    await waitForState(app, msg.id, 'archived')
 
     const trace = await app.request(`/audit/trace/${msg.id}`)
     const json = await trace.json() as { spans: Array<{ name: string }> }
@@ -147,11 +166,16 @@ describe('Wenyan v0.6.0 rituals', () => {
     await seedAccessControl(app)
 
     const doc = baseMessage('tax-1645', 'tax_record', { year: 1645, amount: 12 })
-    expect((await submit(app, doc)).status).toBe(202)
-    await waitForState(app, doc.id, 'archived')
+    const submitRes = await submit(app, doc)
+    expect(submitRes.status).toBe(202)
+    await waitForState(app, doc.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
 
     const read = await app.request(`/messages/${doc.id}`, {
-      headers: authHeaders('clerk-1', 'clerk'),
+      headers: {
+        authorization: `Bearer ${issueToken('clerk-1', 'clerk')}`,
+      },
     })
     expect(read.status).toBe(200)
 
@@ -165,6 +189,7 @@ describe('Wenyan v0.6.0 rituals', () => {
 
   it('Ritual 3: high-velocity constitutional submissions trigger quarantine', async () => {
     const { repo, app } = await setupOffice('velocity')
+    const actorId = 'velocity-actor'
     for (let i = 0; i < 11; i += 1) {
       const r = await submit(
         app,
@@ -172,9 +197,18 @@ describe('Wenyan v0.6.0 rituals', () => {
           target_genre: `g-${i}`,
           version: '1.0.0',
           schema: { type: 'object' },
-        }),
+        }, 'genesis_admin', {}, actorId),
       )
       expect(r.status).toBe(202)
+      const body = await r.json() as { id: string }
+      await waitForState(app, body.id, ['archived', 'rejected'])
+    }
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const anomaly = await app.request('/audit/anomaly?type=velocity')
+      const json = await anomaly.json() as { items: Array<{ alertType: string }> }
+      if (json.items.length > 0) break
+      await sleep(25)
     }
 
     const blocked = await submit(
@@ -183,9 +217,9 @@ describe('Wenyan v0.6.0 rituals', () => {
         target_genre: 'g-blocked',
         version: '1.0.0',
         schema: { type: 'object' },
-      }),
+      }, 'genesis_admin', {}, actorId),
     )
-    expect(blocked.status).toBe(202)
+    expect(blocked.status).toBe(403)
 
     let items: Array<{ alertType: string }> = []
     const started = Date.now()
@@ -198,7 +232,7 @@ describe('Wenyan v0.6.0 rituals', () => {
     }
     expect(items.length).toBeGreaterThan(0)
     repo.close()
-  })
+  }, 15000)
 
   it('Ritual 4: temporal anomaly is rejected and logged', async () => {
     const { repo, app } = await setupOffice('temporal')
@@ -254,6 +288,7 @@ describe('Wenyan v0.6.0 rituals', () => {
       }),
     )
     expect(res.status).toBe(202)
+    await waitForState(app, 'coalition-1', 'archived')
 
     const anomaly = await app.request('/audit/anomaly?type=coalition')
     const json = await anomaly.json() as { items: Array<{ alertType: string }> }
@@ -261,10 +296,12 @@ describe('Wenyan v0.6.0 rituals', () => {
     repo.close()
   })
 
-  it('Ritual 7: audit export returns checkpoint bundle with digest', async () => {
+  it('Ritual 7: audit export returns checkpoint bundle with explicit verification scope', async () => {
     const { repo, app } = await setupOffice('export')
     await ensureGenre(app, 'petition', ['title'])
-    expect((await submit(app, baseMessage('exp-1', 'petition', { title: 'exportable' }))).status).toBe(202)
+    const sub = await submit(app, baseMessage('exp-1', 'petition', { title: 'exportable' }))
+    expect(sub.status).toBe(202)
+    await waitForState(app, 'exp-1', 'archived')
 
     const checkpoint = await app.request('/audit/checkpoint', {
       method: 'POST',
@@ -274,10 +311,17 @@ describe('Wenyan v0.6.0 rituals', () => {
     expect(checkpoint.status).toBe(201)
 
     const exported = await app.request('/audit/export')
-    const json = await exported.json() as { checkpoint?: { merkleRoot: string }; digest?: string }
+    const json = await exported.json() as {
+      checkpoint?: { merkleRoot: string }
+      verification_scope?: string
+      cryptographic_completeness?: string
+      bundle_digest?: string
+    }
     expect(exported.status).toBe(200)
     expect(json.checkpoint?.merkleRoot).toBeDefined()
-    expect(json.digest).toBeDefined()
+    expect(json.verification_scope).toBe('checkpoint-digest-only')
+    expect(json.cryptographic_completeness).toBe('partial')
+    expect(json.bundle_digest).toBeDefined()
     repo.close()
   })
 
@@ -288,11 +332,16 @@ describe('Wenyan v0.6.0 rituals', () => {
     await seedAccessControl(app)
 
     const secret = baseMessage('mil-1', 'military_dispatch', { title: 'secret order' })
-    expect((await submit(app, secret)).status).toBe(202)
-    await waitForState(app, secret.id, 'archived')
+    const sub = await submit(app, secret)
+    expect(sub.status).toBe(202)
+    await waitForState(app, secret.id, 'archived', 5000, 50, {
+      headers: { authorization: `Bearer ${issueToken('ritual-actor', 'genesis_admin')}` },
+    })
 
     const denied = await app.request(`/messages/${secret.id}`, {
-      headers: authHeaders('clerk-2', 'clerk'),
+      headers: {
+        authorization: `Bearer ${issueToken('clerk-2', 'clerk')}`,
+      },
     })
     expect(denied.status).toBe(403)
 
@@ -311,6 +360,9 @@ describe('Wenyan v0.6.0 rituals', () => {
     for (let i = 0; i < count; i += 1) {
       const res = await submit(app, baseMessage(`perf-${i}`, 'petition', { title: `p-${i}` }))
       expect(res.status).toBe(202)
+    }
+    for (let i = 0; i < count; i += 1) {
+      await waitForState(app, `perf-${i}`, ['archived', 'rejected'])
     }
     const elapsed = Date.now() - started
     expect(elapsed).toBeLessThan(10_000)

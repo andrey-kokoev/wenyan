@@ -16,7 +16,7 @@ afterEach(() => {
   tempFiles.clear()
 })
 
-function repoFor(name: string): SqliteArchiveRepository {
+function repoFor (name: string): SqliteArchiveRepository {
   const file = `.tmp-gateway-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}.sqlite`
   tempFiles.add(file)
   const repo = new SqliteArchiveRepository(file)
@@ -25,7 +25,7 @@ function repoFor(name: string): SqliteArchiveRepository {
   return repo
 }
 
-function archiveMessage(repo: SqliteArchiveRepository, message: Record<string, unknown>) {
+function archiveMessage (repo: SqliteArchiveRepository, message: Record<string, unknown>) {
   const envelope = message as Parameters<SqliteArchiveRepository['appendMessage']>[0]
   repo.appendMessage(envelope)
   repo.appendTransition({
@@ -40,7 +40,7 @@ function archiveMessage(repo: SqliteArchiveRepository, message: Record<string, u
   })
 }
 
-function seedTiDefinition(repo: SqliteArchiveRepository, targetGenre: string): void {
+function seedTiDefinition (repo: SqliteArchiveRepository, targetGenre: string): void {
   archiveMessage(repo, {
     id: `ti-${targetGenre}-${Date.now()}`,
     genre: 'ti_definition',
@@ -55,7 +55,7 @@ function seedTiDefinition(repo: SqliteArchiveRepository, targetGenre: string): v
   })
 }
 
-function seedAdmissionLaw(repo: SqliteArchiveRepository, allowedGenres: string[]): void {
+function seedAdmissionLaw (repo: SqliteArchiveRepository, allowedGenres: string[]): void {
   archiveMessage(repo, {
     id: `edict-admission-${Date.now()}`,
     genre: 'edict',
@@ -72,7 +72,7 @@ function seedAdmissionLaw(repo: SqliteArchiveRepository, allowedGenres: string[]
   })
 }
 
-function seedAccessControl(repo: SqliteArchiveRepository): void {
+function seedAccessControl (repo: SqliteArchiveRepository): void {
   archiveMessage(repo, {
     id: `edict-access-control-${Date.now()}`,
     genre: 'edict',
@@ -248,5 +248,22 @@ describe('gateway boundaries', () => {
     })
     expect(read.status).toBe(403)
     repo.close()
+  })
+
+  it('returns 503 for mesh routes when distributed runtime is disabled', async () => {
+    const app = buildGateway(repoFor('mesh-disabled'), new ReliableChannel(), DEV_SEAL_CONTEXT, {
+      lawMode: 'strict',
+      distributedMode: 'single',
+    })
+    const status = await app.request('/mesh/status')
+    expect(status.status).toBe(503)
+    const root = await app.request('/mesh/merkle-root')
+    expect(root.status).toBe(503)
+    const join = await app.request('/mesh/join', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ peer: 'gossip://peer:7946' }),
+    })
+    expect(join.status).toBe(503)
   })
 })

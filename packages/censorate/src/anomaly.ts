@@ -28,7 +28,7 @@ export interface CoalitionSample {
 }
 
 export interface AlertRepository {
-  appendCensorateAlert(alert: {
+  appendCensorateAlert (alert: {
     alertType: string
     severity: AnomalySeverity
     actorId?: string
@@ -40,9 +40,9 @@ export interface AlertRepository {
 }
 
 export class AnomalyDetector {
-  constructor(private readonly repository: AlertRepository) {}
+  constructor(private readonly repository: AlertRepository) { }
 
-  async detectVelocity(samples: VelocitySample[], thresholdPerMinute: number): Promise<AnomalyAlert | undefined> {
+  async detectVelocity (samples: VelocitySample[], thresholdPerMinute: number): Promise<AnomalyAlert | undefined> {
     if (samples.length === 0) return undefined
 
     const byActor = new Map<string, number[]>()
@@ -59,7 +59,7 @@ export class AnomalyDetector {
       timestamps.sort((a, b) => a - b)
       const spanMs = Math.max(timestamps[timestamps.length - 1] - timestamps[0], 1000)
       const ratePerMinute = (timestamps.length * 60_000) / spanMs
-      if (ratePerMinute > thresholdPerMinute) {
+      if (timestamps.length > thresholdPerMinute && ratePerMinute > thresholdPerMinute) {
         return this.emit('velocity', 'critical', {
           actorId,
           evidence: {
@@ -76,7 +76,7 @@ export class AnomalyDetector {
     return undefined
   }
 
-  async detectTemporal(sample: TemporalSample, driftMsThreshold: number): Promise<AnomalyAlert | undefined> {
+  async detectTemporal (sample: TemporalSample, driftMsThreshold: number): Promise<AnomalyAlert | undefined> {
     const drift = Math.abs(new Date(sample.claimedTimestampIso).getTime() - new Date(sample.observedTimestampIso).getTime())
     if (drift <= driftMsThreshold) return undefined
     return this.emit('temporal_anomaly', 'critical', {
@@ -86,7 +86,7 @@ export class AnomalyDetector {
     })
   }
 
-  async detectGeographic(sample: GeographicSample, maxKmh = 1000): Promise<AnomalyAlert | undefined> {
+  async detectGeographic (sample: GeographicSample, maxKmh = 1000): Promise<AnomalyAlert | undefined> {
     const speedKmh = sample.deltaSeconds <= 0 ? Number.POSITIVE_INFINITY : (sample.distanceKm / sample.deltaSeconds) * 3600
     if (speedKmh <= maxKmh) return undefined
     return this.emit('geographic_impossibility', 'critical', {
@@ -96,7 +96,7 @@ export class AnomalyDetector {
     })
   }
 
-  async detectCoalition(sample: CoalitionSample, zThreshold = 3): Promise<AnomalyAlert | undefined> {
+  async detectCoalition (sample: CoalitionSample, zThreshold = 3): Promise<AnomalyAlert | undefined> {
     const variance = Math.max(sample.baselineProbability * (1 - sample.baselineProbability), 0.0001)
     const z = (sample.observedProbability - sample.baselineProbability) / Math.sqrt(variance)
     if (z <= zThreshold) return undefined
@@ -112,7 +112,7 @@ export class AnomalyDetector {
     })
   }
 
-  private async emit(
+  private async emit (
     alertType: string,
     severity: AnomalySeverity,
     input: { actorId?: string; nodeId?: string; evidence: Record<string, unknown>; actionTaken?: string },

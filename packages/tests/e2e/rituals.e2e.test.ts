@@ -5,6 +5,7 @@ import { buildGateway } from '../../gateway/src/index'
 import { SqliteArchiveRepository } from '../../archive/src/sqlite'
 import { ReliableChannel } from '../../channel/src/index'
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
+import { sleep, waitForState, withAuth } from './helpers'
 
 const tempFiles = new Set<string>()
 
@@ -17,7 +18,7 @@ afterEach(() => {
   tempFiles.clear()
 })
 
-function makeRepo(name: string): SqliteArchiveRepository {
+function makeRepo (name: string): SqliteArchiveRepository {
   const file = `.tmp-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}.sqlite`
   tempFiles.add(file)
   const repo = new SqliteArchiveRepository(file)
@@ -27,7 +28,7 @@ function makeRepo(name: string): SqliteArchiveRepository {
   return repo
 }
 
-function archiveSeed(repo: SqliteArchiveRepository, message: Record<string, unknown>): void {
+function archiveSeed (repo: SqliteArchiveRepository, message: Record<string, unknown>): void {
   const envelope = message as Parameters<SqliteArchiveRepository['appendMessage']>[0]
   repo.appendMessage(envelope)
   repo.appendTransition({
@@ -42,7 +43,7 @@ function archiveSeed(repo: SqliteArchiveRepository, message: Record<string, unkn
   })
 }
 
-function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
+function seedBaseline (repo: SqliteArchiveRepository, genres: string[]): void {
   const now = new Date().toISOString()
   archiveSeed(repo, {
     id: `edict-admission-${Date.now()}`,
@@ -132,6 +133,23 @@ function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
     submittedAt: now,
     metadata: { constitutional: true },
   })
+  archiveSeed(repo, {
+    id: `edict-access-control-${Date.now()}`,
+    genre: 'edict',
+    payload: {
+      law_type: 'access_control',
+      version: '1.0.0',
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+      },
+      precedence: 0,
+      effective_date: new Date().toISOString(),
+    },
+    actor: { id: 'seed', role: 'genesis_admin' },
+    submittedAt: new Date().toISOString(),
+    metadata: { constitutional: true },
+  })
   for (const genre of genres) {
     archiveSeed(repo, {
       id: `ti-${genre}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -148,7 +166,7 @@ function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
   }
 }
 
-function validMessage(actorId = 'scholar_01') {
+function validMessage (actorId = 'scholar_01') {
   return {
     id: `msg-${randomUUID()}`,
     genre: 'petition',
@@ -159,37 +177,7 @@ function validMessage(actorId = 'scholar_01') {
   }
 }
 
-async function waitForState(
-  app: ReturnType<typeof buildGateway>,
-  id: string,
-  expected: string,
-  timeoutMs = 5000,
-): Promise<{ state: string; seals?: unknown[]; message?: { payload: Record<string, unknown> }; transitions?: Array<{ reason?: string }> }> {
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    const res = await app.request(`/messages/${id}`)
-    if (res.status === 200) {
-      const body = await res.json() as {
-        state?: string
-        seals?: unknown[]
-        message?: { payload: Record<string, unknown> }
-        transitions?: Array<{ reason?: string }>
-      }
-      if (body.state === expected) {
-        return {
-          state: body.state,
-          seals: body.seals,
-          message: body.message,
-          transitions: body.transitions,
-        }
-      }
-    }
-    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
-  }
-  throw new Error(`timeout waiting for ${id} -> ${expected}`)
-}
-
-async function waitForNonArchivedState(
+async function waitForNonArchivedState (
   repo: SqliteArchiveRepository,
   id: string,
   timeoutMs = 5000,
@@ -206,7 +194,7 @@ async function waitForNonArchivedState(
 describe('Ritual 1: Imperial Examination (Golden Path)', () => {
   it('archives one memorial with full seal chain', async () => {
     const repo = makeRepo('golden-path')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const payload = validMessage('scholar_01')
     const res = await app.request('/messages', {
@@ -220,7 +208,7 @@ describe('Ritual 1: Imperial Examination (Golden Path)', () => {
 
     const status = await waitForState(app, body.id, 'archived')
     expect(status.state).toBe('archived')
-    expect(status.seals?.length).toBe(6)
+    expect(status.seals.length).toBe(6)
 
     const allByActor = [repo.getMessage(body.id)].filter((m) => m?.actor.id === 'scholar_01')
     expect(allByActor).toHaveLength(1)
@@ -233,7 +221,7 @@ describe('Ritual 2: Tampered Memorial (Integrity Failure)', () => {
   it('detects tampering as seal invalidation', async () => {
     const repo = makeRepo('tamper')
     const badContext = { ...DEV_SEAL_CONTEXT, draftPublicKeyHex: 'f'.repeat(64) }
-    const app = buildGateway(repo, new ReliableChannel(), badContext)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), badContext))
 
     const res = await app.request('/messages', {
       method: 'POST',
@@ -243,12 +231,8 @@ describe('Ritual 2: Tampered Memorial (Integrity Failure)', () => {
 
     expect(res.status).toBe(202)
     const body = await res.json() as { id: string }
-    const state = await waitForNonArchivedState(repo, body.id)
-    expect(state).not.toBe('archived')
-    if (state === 'rejected') {
-      const transitions = repo.getTransitions(body.id)
-      expect(transitions.at(-1)?.reason).toBe('invalid-seal-chain')
-    }
+    const status = await waitForState(app, body.id, 'rejected')
+    expect(status.transitions.at(-1)?.reason).toBe('invalid-seal-chain')
 
     repo.close()
   }, 15_000)
@@ -257,7 +241,7 @@ describe('Ritual 2: Tampered Memorial (Integrity Failure)', () => {
 describe('Ritual 3: Grieved Petition (Idempotency)', () => {
   it('deduplicates repeated idempotency key', async () => {
     const repo = makeRepo('idempotency')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const payload = validMessage('flood_1638')
     const headers = {
@@ -287,7 +271,7 @@ describe('Ritual 3: Grieved Petition (Idempotency)', () => {
 describe('Ritual 4: Multi-Office Memorial (Routing)', () => {
   it('requires dual office approval before imperial seal', async () => {
     const repo = makeRepo('routing')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const payload = {
       ...validMessage('war_dispatcher'),
@@ -315,7 +299,7 @@ describe('Ritual 4: Multi-Office Memorial (Routing)', () => {
 describe('Ritual 5: Forbidden Archive (Immutability)', () => {
   it('prevents retroactive mutation of archived content', async () => {
     const repo = makeRepo('forbidden-archive')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const payload = validMessage('secretariat')
     const createdRes = await app.request('/messages', {
@@ -328,7 +312,7 @@ describe('Ritual 5: Forbidden Archive (Immutability)', () => {
     // Target ritual expectation: message mutation must be blocked.
     // This assertion intentionally captures the desired invariant.
     const status = await waitForState(app, created.id, 'archived')
-    expect(status.message?.payload).toEqual(payload.payload)
+    expect(status.message.payload).toEqual(payload.payload)
 
     repo.close()
   })
@@ -337,7 +321,7 @@ describe('Ritual 5: Forbidden Archive (Immutability)', () => {
 describe('Ritual 6: Corrupted Courier (Network Resilience)', () => {
   it('eventually archives 100 submissions with no duplicates', async () => {
     const repo = makeRepo('courier')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const ids: string[] = []
     for (let i = 0; i < 100; i += 1) {
@@ -350,11 +334,10 @@ describe('Ritual 6: Corrupted Courier (Network Resilience)', () => {
       })
     }
 
-    const deadline = Date.now() + 10_000
-    while (Date.now() < deadline) {
-      const done = ids.filter((id) => repo.snapshotState(id) === 'archived')
-      if (done.length === ids.length) break
-      await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+    for (let i = 0; i < 200; i += 1) {
+      const archivedNow = ids.filter((id) => repo.snapshotState(id) === 'archived')
+      if (archivedNow.length === 100) break
+      await sleep(25)
     }
     const archived = ids.filter((id) => repo.snapshotState(id) === 'archived')
     expect(archived).toHaveLength(100)
@@ -370,7 +353,7 @@ describe('Ritual 7: Impersonation Attempt (Identity Boundaries)', () => {
       ...DEV_SEAL_CONTEXT,
       draftPublicKeyHex: '0'.repeat(64),
     }
-    const app = buildGateway(repo, new ReliableChannel(), badContext)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), badContext))
 
     const res = await app.request('/messages', {
       method: 'POST',
@@ -380,12 +363,8 @@ describe('Ritual 7: Impersonation Attempt (Identity Boundaries)', () => {
 
     expect(res.status).toBe(202)
     const body = await res.json() as { id: string }
-    const state = await waitForNonArchivedState(repo, body.id)
-    expect(state).not.toBe('archived')
-    if (state === 'rejected') {
-      const transitions = repo.getTransitions(body.id)
-      expect(transitions.at(-1)?.reason).toBe('invalid-seal-chain')
-    }
+    const status = await waitForState(app, body.id, 'rejected')
+    expect(status.transitions.at(-1)?.reason).toBe('invalid-seal-chain')
 
     repo.close()
   }, 15_000)

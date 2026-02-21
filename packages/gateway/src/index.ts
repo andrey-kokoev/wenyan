@@ -30,16 +30,16 @@ const MAX_HEADER_VALUE_BYTES = 8 * 1024
 const MAX_TOTAL_HEADER_BYTES = 32 * 1024
 const UTF8_ENCODER = new TextEncoder()
 
-function isZodLikeError(error: unknown): error is { issues: unknown[] } {
+function isZodLikeError (error: unknown): error is { issues: unknown[] } {
   return Boolean(
     error &&
-      typeof error === 'object' &&
-      'issues' in error &&
-      Array.isArray((error as { issues?: unknown[] }).issues),
+    typeof error === 'object' &&
+    'issues' in error &&
+    Array.isArray((error as { issues?: unknown[] }).issues),
   )
 }
 
-function headersWithinLimits(headers: Headers): boolean {
+function headersWithinLimits (headers: Headers): boolean {
   let total = 0
   for (const [k, v] of headers.entries()) {
     const kb = UTF8_ENCODER.encode(k).length
@@ -51,7 +51,7 @@ function headersWithinLimits(headers: Headers): boolean {
   return true
 }
 
-function contentLengthWithinLimit(headers: Headers): boolean {
+function contentLengthWithinLimit (headers: Headers): boolean {
   const raw = headers.get('content-length')
   if (!raw) return true
   const n = Number(raw)
@@ -66,7 +66,7 @@ class SchemaUndefinedError extends Error {
   }
 }
 
-function requiredOffices(message: { payload: Record<string, unknown> }): string[] {
+function requiredOffices (message: { payload: Record<string, unknown> }): string[] {
   const routing = message.payload.routing as { destination?: unknown } | undefined
   if (Array.isArray(routing?.destination)) return routing.destination.map(String)
   if (typeof routing?.destination === 'string') return [routing.destination]
@@ -78,11 +78,11 @@ export interface GatewayRuntimeOptions {
   distributedMode?: 'single' | 'consort'
   consensusKind?: 'none' | 'pbft'
   pbftConsensus?: {
-    proposeTiDefinition(proposalId: string, leaderNodeId: string): Promise<unknown> | unknown
-    onPrepare(msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'prepare'; signature: string; at: string }): Promise<boolean> | boolean
-    onCommit(msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'commit'; signature: string; at: string }): Promise<boolean> | boolean
-    commitIfThreshold(proposalId: string): boolean
-    currentView(): number
+    proposeTiDefinition (proposalId: string, leaderNodeId: string): Promise<unknown> | unknown
+    onPrepare (msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'prepare'; signature: string; at: string }): Promise<boolean> | boolean
+    onCommit (msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'commit'; signature: string; at: string }): Promise<boolean> | boolean
+    commitIfThreshold (proposalId: string): boolean
+    currentView (): number
   }
   nodeId?: string
   lawCacheTtlSeconds?: number
@@ -90,7 +90,11 @@ export interface GatewayRuntimeOptions {
   onLawEvent?: (event: LawResolverEvent) => void
   lawResolver?: LawResolver
   onMeshJoin?: (peer: string) => Promise<{ ok: boolean; detail?: string }> | { ok: boolean; detail?: string }
-  onMeshSync?: (peer: string, fromCursor: string, limit: number) => Promise<{ ok: boolean; fetched: number }> | { ok: boolean; fetched: number }
+  onMeshSync?: (
+    peer: string,
+    fromCursor: string,
+    limit: number,
+  ) => Promise<{ ok: boolean; fetched: number; error?: string }> | { ok: boolean; fetched: number; error?: string }
   meshMembers?: () => Array<{ nodeId: string; address: string; state: string }>
   meshPartitioned?: () => boolean
   onSealGossip?: (messageId: string, sealSeq: number) => void | Promise<void>
@@ -105,7 +109,7 @@ export interface GatewayRuntimeOptions {
   }
 }
 
-async function validateByArchivedTi(
+async function validateByArchivedTi (
   tiResolver: TiResolver,
   message: ReturnType<typeof validateEnvelope>,
   options: { requireDefinedGenreSchema?: boolean } = {},
@@ -135,7 +139,7 @@ async function validateByArchivedTi(
   }
 }
 
-async function admissionCheck(
+async function admissionCheck (
   resolver: LawResolver,
   message: ReturnType<typeof validateEnvelope>,
 ): Promise<void> {
@@ -164,7 +168,7 @@ async function admissionCheck(
   }
 }
 
-async function protocolRequiredAcks(resolver: LawResolver, message: { genre: string; payload: Record<string, unknown> }): Promise<number> {
+async function protocolRequiredAcks (resolver: LawResolver, message: { genre: string; payload: Record<string, unknown> }): Promise<number> {
   const base = requiredOffices(message).length || 1
   const law = await loadLawContent({
     resolver,
@@ -183,7 +187,7 @@ async function protocolRequiredAcks(resolver: LawResolver, message: { genre: str
   return law.content.required_acks_by_genre[message.genre] ?? base
 }
 
-export async function tongzhengSi(
+export async function tongzhengSi (
   tiResolver: TiResolver,
   resolver: LawResolver,
   input: unknown,
@@ -197,12 +201,12 @@ export async function tongzhengSi(
 type RepoFactory = ArchiveRepository | (() => ArchiveRepository | Promise<ArchiveRepository>)
 
 interface ChannelLike {
-  subscribe(fn: (event: ChannelEvent) => void): () => void
-  publish(event: ChannelEvent): boolean
-  replay(sinceIso: string): ChannelEvent[]
+  subscribe (fn: (event: ChannelEvent) => void): () => void
+  publish (event: ChannelEvent): boolean
+  replay (sinceIso: string): ChannelEvent[]
 }
 
-async function resolveRepo(repoFactory: RepoFactory): Promise<ArchiveRepository> {
+async function resolveRepo (repoFactory: RepoFactory): Promise<ArchiveRepository> {
   if (typeof repoFactory === 'function') return repoFactory()
   return repoFactory
 }
@@ -212,20 +216,23 @@ interface ReadActor {
   role: string
 }
 
-function decodeBase64Url(input: string): string {
+function decodeBase64Url (input: string): string {
   const normalized = input.replace(/-/g, '+').replace(/_/g, '/')
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
   if (typeof Buffer !== 'undefined') return Buffer.from(padded, 'base64').toString('utf8')
   return atob(padded)
 }
 
-async function actorFromHeaders(
+async function actorFromHeaders (
   headers: Headers,
   authConfig: NonNullable<GatewayRuntimeOptions['auth']>,
 ): Promise<{ actor?: ReadActor; reason?: string }> {
   const headerActorId = headers.get('x-wenyan-actor-id') ?? undefined
   const headerActorRole = headers.get('x-wenyan-actor-role') ?? undefined
-  if (authConfig.allowHeaderActor && headerActorId && headerActorRole) {
+  const isTestMode =
+    (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') ||
+    (typeof process !== 'undefined' && process.env.WENYAN_ALLOW_HEADER_ACTOR === 'true')
+  if (authConfig.allowHeaderActor && isTestMode && headerActorId && headerActorRole) {
     return { actor: { id: headerActorId, role: headerActorRole } }
   }
 
@@ -283,7 +290,7 @@ async function actorFromHeaders(
   return { actor: { id: claims.sub, role: claims.role } }
 }
 
-async function checkReadAccess(
+async function checkReadAccess (
   resolver: LawResolver,
   actor: ReadActor | undefined,
   genre: string,
@@ -312,7 +319,7 @@ async function checkReadAccess(
   return { allowed: false, reason: 'read-forbidden' }
 }
 
-export function buildGateway(
+export function buildGateway (
   repoFactory: RepoFactory,
   channel: ChannelLike,
   sealContextInput: SealContext | (() => SealContext),
@@ -340,11 +347,11 @@ export function buildGateway(
   const quarantinedActors = new Set<string>()
   let constitutionalAmendmentInProgress = false
 
-  function currentSealContext(): SealContext {
+  function currentSealContext (): SealContext {
     return typeof sealContextInput === 'function' ? sealContextInput() : sealContextInput
   }
 
-  async function resolveRuntime(): Promise<{
+  async function resolveRuntime (): Promise<{
     repo: ArchiveRepository
     resolver: LawResolver
     tiResolver: TiResolver
@@ -396,7 +403,7 @@ export function buildGateway(
     }
   }
 
-  async function processDocketLoop(): Promise<void> {
+  async function processDocketLoop (): Promise<void> {
     if (workerRunning) return
     workerRunning = true
     try {
@@ -404,17 +411,46 @@ export function buildGateway(
       while (true) {
         const item = await repo.dequeueDocket(new Date().toISOString())
         if (!item) break
-        const result = await processDocketMessage(repo, item.messageId, currentSealContext(), {
-          lawResolver: resolver,
-          lawMode: options.lawMode ?? 'strict',
-          distributedMode: options.distributedMode ?? 'single',
-          consensusKind: options.consensusKind ?? 'none',
-          pbftConsensus: options.pbftConsensus,
-          nodeId: options.nodeId,
-          lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
-          lawPreloadTypes: options.lawPreloadTypes,
-          onLawEvent: options.onLawEvent,
-        })
+        let result: { messageId: string; finalState: 'pending' | 'authorized' | 'rejected' | 'archived'; reason?: string }
+        try {
+          result = await processDocketMessage(repo, item.messageId, currentSealContext(), {
+            lawResolver: resolver,
+            lawMode: options.lawMode ?? 'strict',
+            distributedMode: options.distributedMode ?? 'single',
+            consensusKind: options.consensusKind ?? 'none',
+            pbftConsensus: options.pbftConsensus,
+            nodeId: options.nodeId,
+            lawCacheTtlSeconds: options.lawCacheTtlSeconds ?? 60,
+            lawPreloadTypes: options.lawPreloadTypes,
+            onLawEvent: options.onLawEvent,
+          })
+        } catch (error) {
+          const reason =
+            error instanceof InsufficientImperialAuthorityError
+              ? 'insufficient-imperial-authority'
+              : error instanceof SealInvalidError
+                ? 'invalid-seal-chain'
+                : error instanceof Error && error.message
+                  ? error.message
+                  : 'processing-error'
+          const nowIso = new Date().toISOString()
+          const fromState = (await repo.snapshotState(item.messageId)) ?? 'pending'
+          const transitions = await repo.getTransitions(item.messageId)
+          if (fromState !== 'rejected') {
+            await repo.appendTransition({
+              messageId: item.messageId,
+              fromState,
+              toState: 'rejected',
+              sequenceNo: transitions.length + 1,
+              actorId: 'gateway-worker',
+              sealedAt: nowIso,
+              at: nowIso,
+              prevTransitionHash: transitions.length > 0 ? transitions[transitions.length - 1].prevTransitionHash : 'GENESIS',
+              reason,
+            })
+          }
+          result = { messageId: item.messageId, finalState: 'rejected', reason }
+        }
         const processed = await repo.getMessage(item.messageId)
         if (processed && item.messageId === processed.id && processed.genre === 'blueprint_change') {
           constitutionalAmendmentInProgress = result.finalState === 'pending'
@@ -791,7 +827,7 @@ export function buildGateway(
     let unsubscribe: (() => void) | undefined
     let keepalive: ReturnType<typeof setInterval> | undefined
     const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
+      start (controller) {
         const send = (event: ChannelEvent): void => {
           controller.enqueue(
             encoder.encode(`id: ${event.id}\nevent: transition\ndata: ${JSON.stringify(event)}\n\n`),
@@ -809,7 +845,7 @@ export function buildGateway(
           controller.close()
         })
       },
-      cancel() {
+      cancel () {
         if (keepalive) clearInterval(keepalive)
         if (unsubscribe) unsubscribe()
       },
@@ -839,6 +875,9 @@ export function buildGateway(
   })
 
   app.get('/mesh/merkle-root', (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     const runtimePromise = resolveRuntime()
     return (async () => {
       const { repo } = await runtimePromise
@@ -848,6 +887,9 @@ export function buildGateway(
   })
 
   app.get('/mesh/status', (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     return c.json({
       mode: options.distributedMode ?? 'single',
       partitioned: options.meshPartitioned?.() ?? false,
@@ -856,6 +898,9 @@ export function buildGateway(
   })
 
   app.post('/mesh/join', async (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     const body = (await c.req.json()) as { peer?: string }
     if (!body.peer) return c.json({ error: 'peer-required' }, 400)
     if (!options.onMeshJoin) return c.json({ error: 'mesh-not-configured' }, 503)
@@ -864,6 +909,9 @@ export function buildGateway(
   })
 
   app.post('/mesh/sync', async (c) => {
+    if ((options.distributedMode ?? 'single') !== 'consort') {
+      return c.json({ error: 'mesh-not-configured' }, 503)
+    }
     const runtimePromise = resolveRuntime()
     const body = (await c.req.json()) as { peer?: string; fromCursor?: string; limit?: number }
     if (!body.peer) return c.json({ error: 'peer-required' }, 400)

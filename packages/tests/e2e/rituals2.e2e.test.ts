@@ -5,6 +5,7 @@ import { buildGateway } from '../../gateway/src/index'
 import { SqliteArchiveRepository } from '../../archive/src/sqlite'
 import { ReliableChannel } from '../../channel/src/index'
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
+import { waitForReplayEvent, waitForState, withAuth } from './helpers'
 
 const tempFiles = new Set<string>()
 
@@ -15,7 +16,7 @@ afterEach(() => {
   tempFiles.clear()
 })
 
-function repoFor(name: string): SqliteArchiveRepository {
+function repoFor (name: string): SqliteArchiveRepository {
   const file = `.tmp-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}.sqlite`
   tempFiles.add(file)
   const repo = new SqliteArchiveRepository(file)
@@ -25,7 +26,7 @@ function repoFor(name: string): SqliteArchiveRepository {
   return repo
 }
 
-function archiveSeed(repo: SqliteArchiveRepository, message: Record<string, unknown>): void {
+function archiveSeed (repo: SqliteArchiveRepository, message: Record<string, unknown>): void {
   const envelope = message as Parameters<SqliteArchiveRepository['appendMessage']>[0]
   repo.appendMessage(envelope)
   repo.appendTransition({
@@ -40,7 +41,7 @@ function archiveSeed(repo: SqliteArchiveRepository, message: Record<string, unkn
   })
 }
 
-function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
+function seedBaseline (repo: SqliteArchiveRepository, genres: string[]): void {
   const seedActor = { id: 'seed', role: 'genesis_admin' }
   const seedMeta = { constitutional: true }
   const now = new Date().toISOString()
@@ -102,7 +103,10 @@ function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
     payload: {
       law_type: 'access_control',
       version: '1.0.0',
-      content: { read_permissions: { admin: ['*'] }, anonymous_read: true, query_hash_only: true },
+      content: {
+        anonymous_read: true,
+        read_permissions: { genesis_admin: ['*'] },
+      },
       precedence: 0,
       effective_date: now,
     },
@@ -122,28 +126,10 @@ function seedBaseline(repo: SqliteArchiveRepository, genres: string[]): void {
   }
 }
 
-async function waitForState(
-  app: ReturnType<typeof buildGateway>,
-  id: string,
-  expected: string,
-  timeoutMs = 5000,
-): Promise<void> {
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    const res = await app.request(`/messages/${id}`)
-    if (res.status === 200) {
-      const body = await res.json() as { state?: string }
-      if (body.state === expected) return
-    }
-    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
-  }
-  throw new Error(`timeout waiting for ${id} -> ${expected}`)
-}
-
 describe('Ritual 8: Secret Memorial (Mifeng)', () => {
   it('keeps encrypted payload opaque while processing seals', async () => {
     const repo = repoFor('mifeng')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const ciphertext = 'enc:v1:Q2lwaGVydGV4dA=='
     const res = await app.request('/messages', {
@@ -161,9 +147,7 @@ describe('Ritual 8: Secret Memorial (Mifeng)', () => {
 
     expect(res.status).toBe(202)
     const body = await res.json() as { id: string }
-    await waitForState(app, body.id, 'archived')
-    const status = await (await app.request(`/messages/${body.id}`)).json() as { message: { payload: { blob: string } }; seals: unknown[] }
-
+    const status = await waitForState(app, body.id, 'archived')
     expect(status.message.payload.blob).toBe(ciphertext)
     expect(status.seals).toHaveLength(6)
     repo.close()
@@ -173,7 +157,7 @@ describe('Ritual 8: Secret Memorial (Mifeng)', () => {
 describe('Ritual 9: Joint Memorial (Huiti)', () => {
   it('requires all listed offices before final authorization', async () => {
     const repo = repoFor('huiti')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const id = `msg-${randomUUID()}`
     const submit = await app.request('/messages', {
@@ -189,6 +173,7 @@ describe('Ritual 9: Joint Memorial (Huiti)', () => {
       }),
     })
     expect(submit.status).toBe(202)
+
     await waitForState(app, id, 'pending')
 
     const a = await app.request(`/messages/${id}/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ office: 'office_a' }) })
@@ -232,17 +217,11 @@ describe('Ritual 10: Imperial Audience (Streaming)', () => {
     })
     await waitForState(app, id, 'archived')
 
-    let found: { messageId: string; at: string } | undefined
-    const since = new Date(start - 1000).toISOString()
-    for (let i = 0; i < 20; i += 1) {
-      const stream = await app.request(`/stream/replay?since=${encodeURIComponent(since)}`)
-      const body = await stream.json() as { events: Array<{ messageId: string; at: string }> }
-      found = body.events.find((e) => e.messageId === id)
-      if (found) break
-      await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
-    }
-    expect(found).toBeDefined()
-    expect(found?.messageId).toBe(id)
+    const stream = await app.request('/stream')
+    expect(stream.headers.get('content-type')).toContain('text/event-stream')
+    const replay = await app.request('/stream/replay')
+    const found = await waitForReplayEvent(app, id)
+    expect(found.messageId).toBe(id)
     expect(Date.now() - start).toBeLessThan(1000)
 
     repo.close()
@@ -252,7 +231,7 @@ describe('Ritual 10: Imperial Audience (Streaming)', () => {
 describe('Ritual 11: Return to Sender (Bohui)', () => {
   it('preserves audit trail for rejected memorial and revision resubmission', async () => {
     const repo = repoFor('bohui')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const baseId = `msg-${randomUUID()}`
     const bad = await app.request('/messages', {
@@ -283,15 +262,12 @@ describe('Ritual 11: Return to Sender (Bohui)', () => {
       }),
     })
     expect(good.status).toBe(202)
-    await waitForState(app, baseId, 'rejected')
-    await waitForState(app, v2Id, 'archived')
 
-    const first = await (await app.request(`/messages/${baseId}`)).json() as { state: string; transitions: Array<{ reason?: string }> }
-    const second = await (await app.request(`/messages/${v2Id}`)).json() as { state: string }
 
-    expect(first.state).toBe('rejected')
+    const first = await waitForState(app, baseId, 'rejected')
+    const second = await waitForState(app, v2Id, 'archived')
+
     expect(first.transitions.some((t) => t.reason === 'empty-payload')).toBe(true)
-    expect(second.state).toBe('archived')
 
     repo.close()
   })
@@ -300,7 +276,7 @@ describe('Ritual 11: Return to Sender (Bohui)', () => {
 describe('Ritual 14: Censorate Circulation (Kechao)', () => {
   it('supports broadcast fan-out intent with routable destinations', async () => {
     const repo = repoFor('kechao')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const id = `msg-${randomUUID()}`
     const submit = await app.request('/messages', {
@@ -316,8 +292,9 @@ describe('Ritual 14: Censorate Circulation (Kechao)', () => {
       }),
     })
     expect(submit.status).toBe(202)
-    await waitForState(app, id, 'pending')
 
+
+    await waitForState(app, id, 'pending')
     await app.request(`/messages/${id}/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ office: 'ministry_a' }) })
     const final = await app.request(`/messages/${id}/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ office: 'ministry_b' }) })
     const finalBody = await final.json() as { state: string }
@@ -330,7 +307,7 @@ describe('Ritual 14: Censorate Circulation (Kechao)', () => {
 describe('Ritual 16: Errata Slip (Gaiding)', () => {
   it('keeps original immutable and links amendment by supersedes pointer', async () => {
     const repo = repoFor('gaiding')
-    const app = buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT)
+    const app = withAuth(buildGateway(repo, new ReliableChannel(), DEV_SEAL_CONTEXT))
 
     const originalId = `msg-${randomUUID()}`
     await app.request('/messages', {
@@ -362,8 +339,8 @@ describe('Ritual 16: Errata Slip (Gaiding)', () => {
     })
     await waitForState(app, amendmentId, 'archived')
 
-    const original = await (await app.request(`/messages/${originalId}`)).json() as { message: { payload: Record<string, unknown> } }
-    const amendment = await (await app.request(`/messages/${amendmentId}`)).json() as { message: { metadata?: Record<string, unknown> } }
+    const original = await waitForState(app, originalId, 'archived')
+    const amendment = await waitForState(app, amendmentId, 'archived')
 
     expect(original.message.payload.recipient).toBe('wrong-ministry')
     expect(amendment.message.metadata?.supersedes).toBe(originalId)

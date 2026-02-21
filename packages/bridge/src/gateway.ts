@@ -1,6 +1,7 @@
 import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
 import { SqliteArchiveRepository } from '@andrey-kokoev/wenyan-archive/sqlite'
 import type { BootstrapConfig, BridgeAdapterConfig, BridgeProtocol, MessageEnvelope } from '@andrey-kokoev/wenyan-core'
+import { createHmac } from 'node:crypto'
 import { KafkaBridgeAdapter } from './adapters/kafka'
 import { MqttBridgeAdapter } from './adapters/mqtt'
 import { NatsBridgeAdapter } from './adapters/nats'
@@ -18,28 +19,51 @@ const MAX_FOREIGN_TOPIC_LENGTH = 256
 const MAX_FOREIGN_HEADER_VALUE = 2048
 const SAFE_TOPIC = /^[a-zA-Z0-9._:/-]+$/
 
+type BridgeBootstrapConfig = {
+  archive: BootstrapConfig['archive']
+  genesis: BootstrapConfig['genesis']
+  gateway: {
+    listen: {
+      host: string
+      port: number
+    }
+    upstream?: string
+    stream_mode?: 'sse'
+  }
+  auth: BootstrapConfig['auth']
+  bridge: BootstrapConfig['bridge']
+}
+
 export interface BridgeGatewayOptions {
   archive?: ArchiveRepository
-  bootstrap: BootstrapConfig
+  bootstrap: BridgeBootstrapConfig
   apiBaseUrl?: string
   adapters?: BridgeAdapter[]
 }
 
-function nowIso(): string {
+function nowIso (): string {
   return new Date().toISOString()
 }
 
-function defaultApiBaseUrl(config: BootstrapConfig): string {
+function encodeBase64Url (value: string): string {
+  return Buffer.from(value, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
+}
+
+function defaultApiBaseUrl (config: BridgeBootstrapConfig): string {
   return `http://${config.gateway.listen.host}:${config.gateway.listen.port}/api/wenyan`
 }
 
-function asStringArray(input: unknown): string[] {
+function asStringArray (input: unknown): string[] {
   if (typeof input === 'string' && input) return [input]
   if (!Array.isArray(input)) return []
   return input.filter((v): v is string => typeof v === 'string' && v.length > 0)
 }
 
-function matchesRoutingTarget(document: MessageEnvelope, adapter: BridgeAdapter): boolean {
+function matchesRoutingTarget (document: MessageEnvelope, adapter: BridgeAdapter): boolean {
   const routing = (document.metadata?.routing as Record<string, unknown> | undefined) ?? {}
   const foreignTargets = asStringArray(routing.foreign_system)
   const adapterTargets = asStringArray(routing.bridge_adapter)
@@ -50,7 +74,7 @@ function matchesRoutingTarget(document: MessageEnvelope, adapter: BridgeAdapter)
   return targets.includes(adapter.protocol)
 }
 
-function sanitizedEnvelope(document: MessageEnvelope, idempotencyKey: string): MessageEnvelope {
+function sanitizedEnvelope (document: MessageEnvelope, idempotencyKey: string): MessageEnvelope {
   return {
     id: document.id,
     genre: document.genre,
@@ -65,7 +89,7 @@ function sanitizedEnvelope(document: MessageEnvelope, idempotencyKey: string): M
   }
 }
 
-function sanitizeForeignMetadata(metadata: ForeignMetadata): ForeignMetadata {
+function sanitizeForeignMetadata (metadata: ForeignMetadata): ForeignMetadata {
   const subject = String(metadata.subjectOrTopic ?? '')
   if (subject.length === 0 || subject.length > MAX_FOREIGN_TOPIC_LENGTH || !SAFE_TOPIC.test(subject)) {
     throw new Error('foreign-metadata-invalid-topic')
@@ -88,9 +112,10 @@ function sanitizeForeignMetadata(metadata: ForeignMetadata): ForeignMetadata {
 
 export class BridgeGateway {
   private readonly archive: ArchiveRepository
-  private readonly config: BootstrapConfig
+  private readonly config: BridgeBootstrapConfig
   private readonly apiBaseUrl: string
   private readonly adapters: BridgeAdapter[]
+  private readonly authHeader: string
   private pollTimer: NodeJS.Timeout | undefined
   private lastStreamAt = new Date(0).toISOString()
   private readonly breaker = new Map<string, BreakerState>()
@@ -105,9 +130,10 @@ export class BridgeGateway {
     this.apiBaseUrl = options.apiBaseUrl ?? defaultApiBaseUrl(options.bootstrap)
     this.archive = options.archive ?? this.createArchiveFromBootstrap(this.config)
     this.adapters = options.adapters ?? this.config.bridge.adapters.map((cfg) => this.createAdapter(cfg))
+    this.authHeader = `Bearer ${this.createBridgeToken()}`
   }
 
-  async start(): Promise<void> {
+  async start (): Promise<void> {
     if (!this.config.bridge.enabled) return
     await this.ensureTargetGenres()
     const ctx: AdapterContext = {
@@ -126,13 +152,13 @@ export class BridgeGateway {
     await this.syncOnce()
   }
 
-  async stop(): Promise<void> {
+  async stop (): Promise<void> {
     if (this.pollTimer) clearInterval(this.pollTimer)
     this.pollTimer = undefined
     for (const adapter of this.adapters) await adapter.stop()
   }
 
-  async status(): Promise<{
+  async status (): Promise<{
     running: boolean
     adapters: Array<{ id: string; protocol: BridgeProtocol; ok: boolean; detail?: string }>
     metrics: BridgeMetrics
@@ -149,7 +175,7 @@ export class BridgeGateway {
     }
   }
 
-  async dryRun(adapterId: string, payload: unknown): Promise<MessageEnvelope> {
+  async dryRun (adapterId: string, payload: unknown): Promise<MessageEnvelope> {
     const adapter = this.adapters.find((a) => a.id === adapterId)
     if (!adapter) throw new Error(`bridge adapter not found: ${adapterId}`)
     const metadata: ForeignMetadata = {
@@ -165,7 +191,7 @@ export class BridgeGateway {
     return sanitizedEnvelope(translated.document, idempotencyKey)
   }
 
-  async syncOnce(targetAdapterId?: string): Promise<{ pushed: number }> {
+  async syncOnce (targetAdapterId?: string): Promise<{ pushed: number }> {
     if (!this.config.bridge.enabled) return { pushed: 0 }
     await this.captureOutboundEvents()
     const queue = await this.archive.dequeueBridgeOutbound(nowIso(), this.config.bridge.sync.batch_size)
@@ -218,7 +244,7 @@ export class BridgeGateway {
     return { pushed }
   }
 
-  private async onInbound(adapter: BridgeAdapter, payload: unknown, metadata: ForeignMetadata): Promise<void> {
+  private async onInbound (adapter: BridgeAdapter, payload: unknown, metadata: ForeignMetadata): Promise<void> {
     let safeMetadata: ForeignMetadata
     try {
       safeMetadata = sanitizeForeignMetadata(metadata)
@@ -273,7 +299,7 @@ export class BridgeGateway {
 
     const res = await fetch(`${this.apiBaseUrl}/messages`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: this.authHeader },
       body: JSON.stringify(clean),
     })
     const json = (await res.json().catch(() => ({}))) as { id?: string; error?: string }
@@ -300,7 +326,7 @@ export class BridgeGateway {
     })
   }
 
-  private async ensureTargetGenres(): Promise<void> {
+  private async ensureTargetGenres (): Promise<void> {
     for (const adapter of this.config.bridge.adapters) {
       if (adapter.target_genre === 'edict' || adapter.target_genre === 'ti_definition') continue
       const schema = await this.archive.getCurrentTiDefinition(adapter.target_genre)
@@ -308,7 +334,7 @@ export class BridgeGateway {
     }
   }
 
-  private createAdapter(config: BridgeAdapterConfig): BridgeAdapter {
+  private createAdapter (config: BridgeAdapterConfig): BridgeAdapter {
     if (config.protocol === 'nats') return new NatsBridgeAdapter(config)
     if (config.protocol === 'kafka') return new KafkaBridgeAdapter(config)
     if (config.protocol === 'mqtt') return new MqttBridgeAdapter(config)
@@ -317,7 +343,7 @@ export class BridgeGateway {
     return new RegulatoryBridgeAdapter(config)
   }
 
-  private createArchiveFromBootstrap(config: BootstrapConfig): ArchiveRepository {
+  private createArchiveFromBootstrap (config: BridgeBootstrapConfig): ArchiveRepository {
     if (config.archive.engine !== 'sqlite') {
       throw new Error('bridge standalone runtime currently supports sqlite archive only')
     }
@@ -327,9 +353,11 @@ export class BridgeGateway {
     return repo
   }
 
-  private async captureOutboundEvents(): Promise<void> {
+  private async captureOutboundEvents (): Promise<void> {
     try {
-      const res = await fetch(`${this.apiBaseUrl}/stream/replay?since=${encodeURIComponent(this.lastStreamAt)}`)
+      const res = await fetch(`${this.apiBaseUrl}/stream/replay?since=${encodeURIComponent(this.lastStreamAt)}`, {
+        headers: { authorization: this.authHeader },
+      })
       if (!res.ok) return
       const body = (await res.json()) as { events?: Array<{ at: string; type: string; messageId: string }> }
       const events = body.events ?? []
@@ -349,10 +377,17 @@ export class BridgeGateway {
     }
   }
 
-  private async fetchMessage(id: string): Promise<MessageEnvelope | undefined> {
+  private async fetchMessage (id: string): Promise<MessageEnvelope | undefined> {
     try {
       const res = await fetch(`${this.apiBaseUrl}/messages/${id}`)
-      if (!res.ok) return undefined
+      if (!res.ok) {
+        const retry = await fetch(`${this.apiBaseUrl}/messages/${id}`, {
+          headers: { authorization: this.authHeader },
+        })
+        if (!retry.ok) return undefined
+        const retryJson = (await retry.json()) as { message?: MessageEnvelope }
+        return retryJson.message
+      }
       const json = (await res.json()) as { message?: MessageEnvelope }
       return json.message
     } catch {
@@ -360,14 +395,37 @@ export class BridgeGateway {
     }
   }
 
-  private recordSuccess(adapterId: string): void {
+  private createBridgeToken (): string {
+    const now = Math.floor(Date.now() / 1000)
+    const header = encodeBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+    const payload = encodeBase64Url(
+      JSON.stringify({
+        iss: this.config.auth.jwt_issuer,
+        aud: this.config.auth.jwt_audience,
+        sub: 'wenyan-bridge',
+        role: 'genesis_admin',
+        iat: now,
+        exp: now + 3600,
+      }),
+    )
+    const secret = this.config.auth.jwt_secret ?? 'wenyan-local-jwt-secret'
+    const sig = createHmac('sha256', secret)
+      .update(`${header}.${payload}`)
+      .digest('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '')
+    return `${header}.${payload}.${sig}`
+  }
+
+  private recordSuccess (adapterId: string): void {
     const state = this.breaker.get(adapterId)
     if (!state) return
     state.outcomes.push(true)
     if (state.outcomes.length > 100) state.outcomes.shift()
   }
 
-  private recordFailure(adapterId: string): void {
+  private recordFailure (adapterId: string): void {
     const state = this.breaker.get(adapterId)
     if (!state) return
     state.outcomes.push(false)
@@ -379,7 +437,7 @@ export class BridgeGateway {
     }
   }
 
-  private isBreakerOpen(adapterId: string): boolean {
+  private isBreakerOpen (adapterId: string): boolean {
     const state = this.breaker.get(adapterId)
     if (!state) return false
     if (state.pausedUntil <= Date.now()) return false

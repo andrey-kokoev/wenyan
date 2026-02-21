@@ -111,7 +111,7 @@ describe('Wenyan v0.7.0 imperial works rituals', () => {
     const bootstrap = parseBootstrapConfig({
       archive: { engine: 'sqlite', path: './dummy.db' },
       genesis: { node_id: '00000000-0000-4000-8000-000000000701', genesis_key: 'x' },
-      gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+      gateway: { listen: { host: '127.0.0.1', port: 8787 }, stream_mode: 'sse' },
       bridge: {
         enabled: true,
         sync: { mode: 'push', poll_interval_ms: 1000, batch_size: 10 },

@@ -32,7 +32,7 @@ interface ArchiveOptions {
   retentionDays?: number
 }
 
-function sha256(input: string): string {
+function sha256 (input: string): string {
   return createHash('sha256').update(input).digest('hex')
 }
 
@@ -48,7 +48,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     this.assertIntegrity()
   }
 
-  private assertIntegrity(): void {
+  private assertIntegrity (): void {
     const rows = this.db.prepare('PRAGMA quick_check').all() as Array<Record<string, unknown>>
     const values = rows
       .map((row) => String(Object.values(row)[0] ?? ''))
@@ -58,7 +58,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  initialize(): void {
+  initialize (): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
@@ -296,7 +296,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     `)
   }
 
-  migrate(): void {
+  migrate (): void {
     this.initialize()
     const latest = this.db.prepare('SELECT version, migration_hash FROM archive_migrations ORDER BY version DESC LIMIT 1').get() as
       | { version: number; migration_hash: string }
@@ -460,7 +460,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  appendMessage(message: MessageEnvelope): void {
+  appendMessage (message: MessageEnvelope): void {
     const payload = message.payload as Record<string, unknown>
     const metadata = message.metadata as Record<string, unknown>
     const constitutional = message.genre === 'ti_definition' || metadata.constitutional === true ? 1 : 0
@@ -489,7 +489,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
   }
 
-  appendTransition(transition: Transition): void {
+  appendTransition (transition: Transition): void {
     const current = this.snapshotState(transition.messageId) ?? 'pending'
     if (!canTransition(current, transition.toState) && current !== transition.fromState) {
       throw new Error(`Invalid transition ${current} -> ${transition.toState}`)
@@ -538,7 +538,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  appendSeal(seal: SealRecord): void {
+  appendSeal (seal: SealRecord): void {
     this.db
       .prepare(
         'INSERT INTO seals(seal_id, message_id, stage, prev_hash, hash, signature, created_at, payload_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?)',
@@ -560,13 +560,13 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       .run(JSON.stringify(seals), seal.messageId)
   }
 
-  enqueueDocket(messageId: string): void {
+  enqueueDocket (messageId: string): void {
     this.db
       .prepare('INSERT INTO docket(id, message_id, attempts, available_at) VALUES(?, ?, ?, ?)')
       .run(`${messageId}:${Date.now()}`, messageId, 0, new Date().toISOString())
   }
 
-  dequeueDocket(nowIso: string): DocketItem | undefined {
+  dequeueDocket (nowIso: string): DocketItem | undefined {
     const row = this.db
       .prepare('SELECT id, message_id, attempts, available_at FROM docket WHERE available_at <= ? ORDER BY available_at ASC LIMIT 1')
       .get(nowIso) as { id: string; message_id: string; attempts: number; available_at: string } | undefined
@@ -584,7 +584,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  snapshotState(messageId: string): MessageState | undefined {
+  snapshotState (messageId: string): MessageState | undefined {
     const row = this.db
       .prepare('SELECT to_state FROM transitions WHERE message_id = ? ORDER BY sequence_no DESC LIMIT 1')
       .get(messageId) as { to_state?: MessageState } | undefined
@@ -592,7 +592,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return row?.to_state
   }
 
-  getMessage(messageId: string): MessageEnvelope | undefined {
+  getMessage (messageId: string): MessageEnvelope | undefined {
     const row = this.db
       .prepare('SELECT payload_json FROM messages WHERE id = ?')
       .get(messageId) as { payload_json?: string } | undefined
@@ -602,23 +602,23 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return JSON.parse(row.payload_json) as MessageEnvelope
   }
 
-  getTransitions(messageId: string): Transition[] {
+  getTransitions (messageId: string): Transition[] {
     const rows = this.db
       .prepare(
         `SELECT message_id, from_state, to_state, sequence_no, actor_id, sealed_at, reason, prev_transition_hash, at
          FROM transitions WHERE message_id = ? ORDER BY sequence_no ASC`,
       )
       .all(messageId) as Array<{
-      message_id: string
-      from_state: Transition['fromState']
-      to_state: Transition['toState']
-      sequence_no: number
-      actor_id: string | null
-      sealed_at: string | null
-      reason: string | null
-      prev_transition_hash: string | null
-      at: string
-    }>
+        message_id: string
+        from_state: Transition['fromState']
+        to_state: Transition['toState']
+        sequence_no: number
+        actor_id: string | null
+        sealed_at: string | null
+        reason: string | null
+        prev_transition_hash: string | null
+        at: string
+      }>
 
     return rows.map((r) => ({
       messageId: r.message_id,
@@ -633,19 +633,19 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  getSeals(messageId: string): SealRecord[] {
+  getSeals (messageId: string): SealRecord[] {
     const rows = this.db
       .prepare('SELECT seal_id, message_id, stage, prev_hash, hash, signature, created_at, payload_json FROM seals WHERE message_id = ? ORDER BY created_at ASC')
       .all(messageId) as Array<{
-      seal_id: string
-      message_id: string
-      stage: SealRecord['stage']
-      prev_hash: string
-      hash: string
-      signature: string
-      created_at: string
-      payload_json: string | null
-    }>
+        seal_id: string
+        message_id: string
+        stage: SealRecord['stage']
+        prev_hash: string
+        hash: string
+        signature: string
+        created_at: string
+        payload_json: string | null
+      }>
 
     return rows.map((r) => ({
       sealId: r.seal_id,
@@ -659,7 +659,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  getIdempotency(key: string, nowIso: string): { key: string; responseJson: string; expiresAt: string } | undefined {
+  getIdempotency (key: string, nowIso: string): { key: string; responseJson: string; expiresAt: string } | undefined {
     const row = this.db
       .prepare('SELECT key, response_json, expires_at FROM idempotency_keys WHERE key = ?')
       .get(key) as { key: string; response_json: string; expires_at: string } | undefined
@@ -668,7 +668,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return { key: row.key, responseJson: row.response_json, expiresAt: row.expires_at }
   }
 
-  putIdempotency(key: string, responseJson: string, expiresAt: string): void {
+  putIdempotency (key: string, responseJson: string, expiresAt: string): void {
     this.db
       .prepare(
         'INSERT INTO idempotency_keys(key, response_json, expires_at, created_at) VALUES(?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET response_json = excluded.response_json, expires_at = excluded.expires_at',
@@ -676,7 +676,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       .run(key, responseJson, expiresAt, new Date().toISOString())
   }
 
-  addOfficeApproval(messageId: string, office: string): number {
+  addOfficeApproval (messageId: string, office: string): number {
     this.db
       .prepare('INSERT INTO office_approvals(message_id, office, approved_at) VALUES(?, ?, ?) ON CONFLICT(message_id, office) DO NOTHING')
       .run(messageId, office, new Date().toISOString())
@@ -686,14 +686,14 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return row.c
   }
 
-  getOfficeApprovals(messageId: string): string[] {
+  getOfficeApprovals (messageId: string): string[] {
     const rows = this.db
       .prepare('SELECT office FROM office_approvals WHERE message_id = ? ORDER BY office ASC')
       .all(messageId) as Array<{ office: string }>
     return rows.map((r) => r.office)
   }
 
-  stateAt(messageId: string, timestampIso: string): MessageState | undefined {
+  stateAt (messageId: string, timestampIso: string): MessageState | undefined {
     const row = this.db
       .prepare(
         `SELECT to_state
@@ -707,12 +707,12 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return row?.to_state
   }
 
-  getActiveGenreSchema(targetGenre: string): Record<string, unknown> | undefined {
+  getActiveGenreSchema (targetGenre: string): Record<string, unknown> | undefined {
     const def = this.getCurrentTiDefinition(targetGenre)
     return def?.schema
   }
 
-  getCurrentTiDefinition(genre: string, atIso = new Date().toISOString()): TiDefinitionRecord | undefined {
+  getCurrentTiDefinition (genre: string, atIso = new Date().toISOString()): TiDefinitionRecord | undefined {
     const row = this.db
       .prepare(
         `SELECT t.message_id, t.target_genre, t.version, t.schema_json, t.sealed_at
@@ -741,7 +741,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  getCurrentLaw(lawType: EdictLawType, atIso: string): ResolvedLaw | undefined {
+  getCurrentLaw (lawType: EdictLawType, atIso: string): ResolvedLaw | undefined {
     const rows = this.db
       .prepare(
         `SELECT
@@ -767,14 +767,14 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          LIMIT 2`,
       )
       .all(lawType, atIso, atIso) as Array<{
-      message_id: string
-      law_type: string
-      version: string
-      content_json: string
-      precedence: number
-      effective_date: string
-      sealed_at: string
-    }>
+        message_id: string
+        law_type: string
+        version: string
+        content_json: string
+        precedence: number
+        effective_date: string
+        sealed_at: string
+      }>
 
     if (rows.length === 0) return undefined
     if (rows.length > 1) {
@@ -796,7 +796,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  getLawSet(atIso: string): Record<EdictLawType, ResolvedLaw | undefined> {
+  getLawSet (atIso: string): Record<EdictLawType, ResolvedLaw | undefined> {
     const out = {} as Record<EdictLawType, ResolvedLaw | undefined>
     for (const lawType of EdictLawTypeValues) {
       out[lawType] = this.getCurrentLaw(lawType, atIso)
@@ -804,7 +804,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return out
   }
 
-  getConstitutionalDocuments(): ConstitutionalDocumentRef[] {
+  getConstitutionalDocuments (): ConstitutionalDocumentRef[] {
     const rows = this.db
       .prepare(
         `SELECT id, archived_at
@@ -817,7 +817,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return rows.map((r) => ({ id: r.id, archivedAt: r.archived_at }))
   }
 
-  getMerkleRoot(scope: 'all' | 'constitutional' | 'legislative' = 'all'): string {
+  getMerkleRoot (scope: 'all' | 'constitutional' | 'legislative' = 'all'): string {
     const { leaves } = this.collectMerkleLeaves(scope)
     const root = merkleRootForLeaves(leaves)
     this.db
@@ -829,7 +829,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return root
   }
 
-  getMerkleProof(messageId: string): MerkleProof | undefined {
+  getMerkleProof (messageId: string): MerkleProof | undefined {
     const { leaves, messageLeafRows } = this.collectMerkleLeaves('all')
     const idx = messageLeafRows.findIndex((r) => r.id === messageId)
     if (idx < 0) return undefined
@@ -842,7 +842,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  private collectMerkleLeaves(scope: 'all' | 'constitutional' | 'legislative'): {
+  private collectMerkleLeaves (scope: 'all' | 'constitutional' | 'legislative'): {
     leaves: string[]
     messageLeafRows: Array<{ id: string; h: string }>
   } {
@@ -870,7 +870,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return { leaves, messageLeafRows }
   }
 
-  getSyncRange(fromCursor: string, limit: number): Transition[] {
+  getSyncRange (fromCursor: string, limit: number): Transition[] {
     const cursor = Number(fromCursor) || 0
     const rows = this.db
       .prepare(
@@ -881,17 +881,17 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          LIMIT ?`,
       )
       .all(cursor, limit) as Array<{
-      id: number
-      message_id: string
-      from_state: Transition['fromState']
-      to_state: Transition['toState']
-      sequence_no: number
-      actor_id: string | null
-      sealed_at: string | null
-      reason: string | null
-      prev_transition_hash: string | null
-      at: string
-    }>
+        id: number
+        message_id: string
+        from_state: Transition['fromState']
+        to_state: Transition['toState']
+        sequence_no: number
+        actor_id: string | null
+        sealed_at: string | null
+        reason: string | null
+        prev_transition_hash: string | null
+        at: string
+      }>
     return rows.map((r) => ({
       messageId: r.message_id,
       fromState: r.from_state,
@@ -905,7 +905,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  upsertContentBlob(hash: string, payload: Uint8Array | string): void {
+  upsertContentBlob (hash: string, payload: Uint8Array | string): void {
     const blob = typeof payload === 'string' ? Buffer.from(payload) : Buffer.from(payload)
     this.db
       .prepare(
@@ -915,19 +915,19 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       .run(hash, blob)
   }
 
-  getContentBlob(hash: string): Uint8Array | undefined {
+  getContentBlob (hash: string): Uint8Array | undefined {
     const row = this.db.prepare('SELECT payload_blob FROM content_store WHERE hash = ?').get(hash) as { payload_blob?: Buffer } | undefined
     if (!row?.payload_blob) return undefined
     return new Uint8Array(row.payload_blob)
   }
 
-  appendGossipLog(entry: GossipLogEntry): void {
+  appendGossipLog (entry: GossipLogEntry): void {
     this.db
       .prepare('INSERT INTO gossip_log(message_id, peer_node_id, seal_seq, received_at, kind) VALUES(?, ?, ?, ?, ?)')
       .run(entry.messageId, entry.peerNodeId, entry.sealSeq, entry.receivedAt, entry.kind)
   }
 
-  appendForeignRejected(entry: ForeignRejectedRecord): void {
+  appendForeignRejected (entry: ForeignRejectedRecord): void {
     this.db
       .prepare(
         'INSERT INTO foreign_rejected(adapter_id, foreign_id, reason_code, reason_detail, payload_json, received_at) VALUES(?, ?, ?, ?, ?, ?)',
@@ -942,7 +942,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
   }
 
-  upsertForeignSyncState(entry: ForeignSyncStateRecord): void {
+  upsertForeignSyncState (entry: ForeignSyncStateRecord): void {
     this.db
       .prepare(
         `INSERT INTO foreign_sync_state(document_id, adapter_id, adapter_protocol, foreign_id, foreign_vector_clock_json, last_sync_at, conflict_status, last_error)
@@ -968,7 +968,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
   }
 
-  getForeignSyncState(documentId: string): ForeignSyncStateRecord | undefined {
+  getForeignSyncState (documentId: string): ForeignSyncStateRecord | undefined {
     const row = this.db
       .prepare(
         `SELECT document_id, adapter_id, adapter_protocol, foreign_id, foreign_vector_clock_json, last_sync_at, conflict_status, last_error
@@ -976,15 +976,15 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
       .get(documentId) as
       | {
-          document_id: string
-          adapter_id: string
-          adapter_protocol: 'nats' | 'kafka' | 'mqtt' | 'erp' | 'payroll' | 'regulatory'
-          foreign_id: string
-          foreign_vector_clock_json: string | null
-          last_sync_at: string
-          conflict_status: 'resolved' | 'pending' | 'schism'
-          last_error: string | null
-        }
+        document_id: string
+        adapter_id: string
+        adapter_protocol: 'nats' | 'kafka' | 'mqtt' | 'erp' | 'payroll' | 'regulatory'
+        foreign_id: string
+        foreign_vector_clock_json: string | null
+        last_sync_at: string
+        conflict_status: 'resolved' | 'pending' | 'schism'
+        last_error: string | null
+      }
       | undefined
     if (!row) return undefined
     return {
@@ -999,13 +999,13 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  enqueueBridgeOutbound(adapterId: string, messageId: string, availableAt: string): void {
+  enqueueBridgeOutbound (adapterId: string, messageId: string, availableAt: string): void {
     this.db
       .prepare('INSERT INTO bridge_outbound_queue(adapter_id, message_id, attempts, available_at, status) VALUES(?, ?, 0, ?, ?)')
       .run(adapterId, messageId, availableAt, 'queued')
   }
 
-  dequeueBridgeOutbound(nowIso: string, limit: number): BridgeOutboundQueueItem[] {
+  dequeueBridgeOutbound (nowIso: string, limit: number): BridgeOutboundQueueItem[] {
     const rows = this.db
       .prepare(
         `SELECT id, adapter_id, message_id, attempts, available_at, last_error, status
@@ -1015,14 +1015,14 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          LIMIT ?`,
       )
       .all(nowIso, limit) as Array<{
-      id: number
-      adapter_id: string
-      message_id: string
-      attempts: number
-      available_at: string
-      last_error: string | null
-      status: BridgeOutboundQueueItem['status']
-    }>
+        id: number
+        adapter_id: string
+        message_id: string
+        attempts: number
+        available_at: string
+        last_error: string | null
+        status: BridgeOutboundQueueItem['status']
+      }>
     return rows.map((r) => ({
       id: r.id,
       adapterId: r.adapter_id,
@@ -1034,7 +1034,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  markBridgeOutboundResult(id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): void {
+  markBridgeOutboundResult (id: number, status: BridgeOutboundQueueItem['status'], lastError?: string): void {
     if (status === 'sent') {
       this.db.prepare('DELETE FROM bridge_outbound_queue WHERE id = ?').run(id)
       return
@@ -1048,7 +1048,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       .run(status, lastError ?? null, new Date().toISOString(), id)
   }
 
-  setSiteStatus(status: SiteStatus, reason?: string): void {
+  setSiteStatus (status: SiteStatus, reason?: string): void {
     this.db
       .prepare(
         `INSERT INTO site_runtime_state(key, value_json, updated_at)
@@ -1058,7 +1058,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       .run(JSON.stringify({ status, reason: reason ?? null }), new Date().toISOString())
   }
 
-  getSiteStatus(): SiteStatus {
+  getSiteStatus (): SiteStatus {
     const row = this.db
       .prepare('SELECT value_json FROM site_runtime_state WHERE key = ?')
       .get('site_status') as { value_json: string } | undefined
@@ -1074,7 +1074,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     return 'ACTIVE'
   }
 
-  appendBridgeDeadLetter(entry: BridgeDeadLetterRecord): void {
+  appendBridgeDeadLetter (entry: BridgeDeadLetterRecord): void {
     this.db
       .prepare(
         `INSERT INTO bridge_dead_letter(adapter_id, message_id, payload_json, reason, attempts, next_retry_at, created_at)
@@ -1091,7 +1091,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
   }
 
-  dequeueBridgeDeadLetter(nowIso: string, limit: number): BridgeDeadLetterRecord[] {
+  dequeueBridgeDeadLetter (nowIso: string, limit: number): BridgeDeadLetterRecord[] {
     const rows = this.db
       .prepare(
         `SELECT id, adapter_id, message_id, payload_json, reason, attempts, next_retry_at, created_at
@@ -1101,15 +1101,15 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          LIMIT ?`,
       )
       .all(nowIso, limit) as Array<{
-      id: number
-      adapter_id: string
-      message_id: string | null
-      payload_json: string
-      reason: string
-      attempts: number
-      next_retry_at: string
-      created_at: string
-    }>
+        id: number
+        adapter_id: string
+        message_id: string | null
+        payload_json: string
+        reason: string
+        attempts: number
+        next_retry_at: string
+        created_at: string
+      }>
     return rows.map((r) => ({
       id: r.id,
       adapterId: r.adapter_id,
@@ -1122,7 +1122,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  markBridgeDeadLetterResult(id: number, success: boolean, nextRetryAt?: string, reason?: string): void {
+  markBridgeDeadLetterResult (id: number, success: boolean, nextRetryAt?: string, reason?: string): void {
     if (success) {
       this.db.prepare('DELETE FROM bridge_dead_letter WHERE id = ?').run(id)
       return
@@ -1138,7 +1138,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       .run(nextRetryAt ?? new Date().toISOString(), reason ?? 'retry', id)
   }
 
-  appendSeal0Receipt(receipt: Seal0Receipt): void {
+  appendSeal0Receipt (receipt: Seal0Receipt): void {
     this.db
       .prepare(
         `INSERT INTO seal_0_log(
@@ -1161,7 +1161,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
   }
 
-  querySeal0ByDocument(
+  querySeal0ByDocument (
     documentId: string,
     filters: { since?: string; actorId?: string; limit?: number } = {},
   ): Seal0Receipt[] {
@@ -1176,8 +1176,8 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          LIMIT ?`,
       )
       .all(documentId, filters.since ?? null, filters.since ?? null, filters.actorId ?? null, filters.actorId ?? null, filters.limit ?? 100) as Array<
-      Record<string, unknown>
-    >
+        Record<string, unknown>
+      >
     return rows.map((r) => ({
       id: String(r.id),
       document_id: (r.document_id as string | null) ?? null,
@@ -1194,7 +1194,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  querySeal0ByGenre(
+  querySeal0ByGenre (
     genre: string,
     filters: { since?: string; actorId?: string; limit?: number } = {},
   ): Seal0Receipt[] {
@@ -1209,8 +1209,8 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          LIMIT ?`,
       )
       .all(genre, filters.since ?? null, filters.since ?? null, filters.actorId ?? null, filters.actorId ?? null, filters.limit ?? 100) as Array<
-      Record<string, unknown>
-    >
+        Record<string, unknown>
+      >
     return rows.map((r) => ({
       id: String(r.id),
       document_id: (r.document_id as string | null) ?? null,
@@ -1227,7 +1227,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  appendCensorateAlert(alert: CensorateAlertRecord): void {
+  appendCensorateAlert (alert: CensorateAlertRecord): void {
     const id = alert.id ?? `${alert.alertType}:${Date.now()}`
     this.db
       .prepare(
@@ -1247,7 +1247,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
   }
 
-  queryCensorateAlerts(
+  queryCensorateAlerts (
     window: { since?: string; limit?: number; type?: string } = {},
   ): CensorateAlertRecord[] {
     const rows = this.db
@@ -1260,8 +1260,8 @@ export class SqliteArchiveRepository implements ArchiveRepository {
          LIMIT ?`,
       )
       .all(window.since ?? null, window.since ?? null, window.type ?? null, window.type ?? null, window.limit ?? 100) as Array<
-      Record<string, unknown>
-    >
+        Record<string, unknown>
+      >
     return rows.map((r) => ({
       id: String(r.id),
       alertType: String(r.alert_type),
@@ -1274,7 +1274,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }))
   }
 
-  appendAuditCheckpoint(entry: AuditCheckpointRecord): void {
+  appendAuditCheckpoint (entry: AuditCheckpointRecord): void {
     const id = entry.id ?? `checkpoint:${entry.scope}:${entry.createdAt}`
     this.db
       .prepare(
@@ -1291,7 +1291,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
   }
 
-  exportAuditBundle(input: { start?: string; end?: string; merkleRoot?: string }): unknown {
+  exportAuditBundle (input: { start?: string; end?: string; merkleRoot?: string }): unknown {
     const sealRows = this.db
       .prepare(
         `SELECT *
@@ -1339,21 +1339,21 @@ export class SqliteArchiveRepository implements ArchiveRepository {
 
     const checkpoint = input.merkleRoot
       ? (this.db
-          .prepare('SELECT * FROM audit_checkpoints WHERE merkle_root = ? ORDER BY created_at DESC LIMIT 1')
-          .get(input.merkleRoot) as Record<string, unknown> | undefined)
+        .prepare('SELECT * FROM audit_checkpoints WHERE merkle_root = ? ORDER BY created_at DESC LIMIT 1')
+        .get(input.merkleRoot) as Record<string, unknown> | undefined)
       : (this.db
-          .prepare('SELECT * FROM audit_checkpoints ORDER BY created_at DESC LIMIT 1')
-          .get() as Record<string, unknown> | undefined)
+        .prepare('SELECT * FROM audit_checkpoints ORDER BY created_at DESC LIMIT 1')
+        .get() as Record<string, unknown> | undefined)
 
     const normalizedCheckpoint = checkpoint
       ? {
-          id: String(checkpoint.id),
-          scope: String(checkpoint.scope),
-          merkleRoot: String(checkpoint.merkle_root),
-          sealCount: Number(checkpoint.seal_count),
-          nodeSignatures: JSON.parse(String(checkpoint.node_signatures_json)) as string[],
-          createdAt: String(checkpoint.created_at),
-        }
+        id: String(checkpoint.id),
+        scope: String(checkpoint.scope),
+        merkleRoot: String(checkpoint.merkle_root),
+        sealCount: Number(checkpoint.seal_count),
+        nodeSignatures: JSON.parse(String(checkpoint.node_signatures_json)) as string[],
+        createdAt: String(checkpoint.created_at),
+      }
       : undefined
 
     const proofs = messageIds
@@ -1418,10 +1418,12 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       ...bundleCore,
       digest: sha256(JSON.stringify(normalizedCheckpoint ?? {})),
       bundle_digest: sha256(JSON.stringify(bundleCore)),
+      verification_scope: 'checkpoint-digest-only',
+      cryptographic_completeness: 'partial',
     }
   }
 
-  private indexArchivedMessage(messageId: string, sealedAt: string): void {
+  private indexArchivedMessage (messageId: string, sealedAt: string): void {
     const message = this.getMessage(messageId)
     if (!message) return
     const payload = message.payload as Record<string, unknown>
@@ -1487,7 +1489,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
     }
   }
 
-  close(): void {
+  close (): void {
     this.db.close()
   }
 }
