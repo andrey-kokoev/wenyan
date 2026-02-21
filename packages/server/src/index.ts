@@ -17,12 +17,11 @@ import adminConfigRoutes from './routes/admin/config';
 import { createStorageAdapter, type StorageAdapter } from '@andrey-kokoev/wenyan-archive/adapter';
 import { syncWithPeer } from '@andrey-kokoev/wenyan-archive/sync';
 import { ReliableChannel } from '@andrey-kokoev/wenyan-channel';
-import { parseBootstrapConfig, type EdictLawType, type LawMode } from '@andrey-kokoev/wenyan-core';
+import { parseBootstrapConfig, type EdictLawType, type LawMode, type MessageEnvelope } from '@andrey-kokoev/wenyan-core';
 import { buildGateway, type GatewayRuntimeOptions } from '@andrey-kokoev/wenyan-gateway';
 import { BridgeGateway } from '@andrey-kokoev/wenyan-bridge';
 import { SwimMembership, InMemoryPlumtree, ImperialBroadcast } from '@andrey-kokoev/wenyan-gossip';
 import { PbftConsensus } from '@andrey-kokoev/wenyan-consensus';
-import { mergeEdict, type EdictLike } from '@andrey-kokoev/wenyan-crdt';
 import type { SealContext } from '@andrey-kokoev/wenyan-seal';
 
 // Import me/settings routes
@@ -414,18 +413,30 @@ app.use('*', async (c, next) => {
         wenyanMembership = new SwimMembership(bootstrap.distributed.suspicion_timeout_ms);
         wenyanPlumtree = new InMemoryPlumtree(bootstrap.distributed.fanout);
         wenyanImperial = new ImperialBroadcast();
+        const refreshPlumtreePeers = () => {
+          if (!wenyanMembership || !wenyanPlumtree) return;
+          const peers = wenyanMembership
+            .list()
+            .filter((m) => m.state === 'alive')
+            .map((m) => m.address);
+          const mutablePlumtree = wenyanPlumtree as unknown as { setPeers?: (items: string[]) => void };
+          mutablePlumtree.setPeers?.(peers);
+        };
         for (const seed of bootstrap.distributed.seeds) {
           wenyanMembership.upsert(seed, seed);
         }
+        refreshPlumtreePeers();
         wenyanGatewayOptions.meshMembers = () => wenyanMembership?.list() ?? [];
         wenyanGatewayOptions.meshPartitioned = () => wenyanMembership?.isPartitioned() ?? false;
         wenyanMetrics.byzantineSuspicions = (wenyanMembership?.list() ?? []).filter((m) => m.state !== 'alive').length
         wenyanGatewayOptions.onMeshJoin = async (peer) => {
           wenyanMembership?.upsert(peer, peer);
+          refreshPlumtreePeers();
           return { ok: true, detail: `joined ${peer}` };
         };
         wenyanGatewayOptions.onSealGossip = async (messageId, sealSeq) => {
           if (sealSeq < 6) {
+            refreshPlumtreePeers();
             wenyanPlumtree?.eagerPush({ id: `${messageId}:${sealSeq}`, topic: 'seal', payload: { messageId, sealSeq } });
           } else {
             wenyanImperial?.deliver({ id: `${messageId}:${sealSeq}`, topic: 'imperial', payload: { messageId, sealSeq } });
@@ -436,13 +447,13 @@ app.use('*', async (c, next) => {
           const remoteBase = peer.replace(/^gossip:\/\//, 'http://').replace(/\/$/, '');
           const result = await syncWithPeer(
             wenyanArchive,
-            {
+            ({
               getMerkleRoot: async () => {
                 const res = await fetch(`${remoteBase}/api/wenyan/mesh/merkle-root`);
                 const json = await res.json() as { root: string };
                 return json.root;
               },
-              getSyncRange: async (cursor, lim) => {
+              getSyncRange: async (cursor: string, lim: number) => {
                 const res = await fetch(`${remoteBase}/api/wenyan/mesh/sync`, {
                   method: 'POST',
                   headers: { 'content-type': 'application/json' },
@@ -452,14 +463,15 @@ app.use('*', async (c, next) => {
                 const json = await res.json() as { transitions?: Array<Record<string, unknown>> };
                 return json.transitions ?? [];
               },
-            },
+              getMessage: async (messageId: string) => {
+                const res = await fetch(`${remoteBase}/api/wenyan/messages/${encodeURIComponent(messageId)}`);
+                if (!res.ok) return undefined;
+                const json = await res.json() as { message?: MessageEnvelope };
+                return json.message;
+              },
+            } as unknown as Parameters<typeof syncWithPeer>[1]),
             { fromCursor, limit },
           );
-          if (result.diverged) {
-            const a: EdictLike = { id: 'local', nodeId: bootstrap.distributed.node_id, precedence: 0, clock: { [bootstrap.distributed.node_id]: 1 }, payload: {} };
-            const b: EdictLike = { id: 'remote', nodeId: peer, precedence: 0, clock: { [peer]: 1 }, payload: {} };
-            mergeEdict(a, b);
-          }
           return { ok: true, fetched: result.fetched };
         };
       }

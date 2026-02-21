@@ -1302,6 +1302,41 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       )
       .all(input.start ?? null, input.start ?? null, input.end ?? null, input.end ?? null) as Array<Record<string, unknown>>
 
+    const messageRows = this.db
+      .prepare(
+        `SELECT id, genre, payload_json, submitted_at, archived_at
+         FROM messages
+         WHERE archived_at IS NOT NULL
+           AND (? IS NULL OR archived_at >= ?)
+           AND (? IS NULL OR archived_at <= ?)
+         ORDER BY archived_at ASC, id ASC`,
+      )
+      .all(input.start ?? null, input.start ?? null, input.end ?? null, input.end ?? null) as Array<Record<string, unknown>>
+    const messageIds = messageRows.map((r) => String(r.id))
+
+    let transitionRows: Array<Record<string, unknown>> = []
+    let sealChainRows: Array<Record<string, unknown>> = []
+    if (messageIds.length > 0) {
+      const placeholders = messageIds.map(() => '?').join(', ')
+      transitionRows = this.db
+        .prepare(
+          `SELECT message_id, from_state, to_state, sequence_no, actor_id, sealed_at, reason, prev_transition_hash, at
+           FROM transitions
+           WHERE message_id IN (${placeholders})
+           ORDER BY message_id ASC, sequence_no ASC`,
+        )
+        .all(...messageIds) as Array<Record<string, unknown>>
+
+      sealChainRows = this.db
+        .prepare(
+          `SELECT message_id, seal_id, stage, prev_hash, hash, signature, created_at, payload_json
+           FROM seals
+           WHERE message_id IN (${placeholders})
+           ORDER BY message_id ASC, created_at ASC`,
+        )
+        .all(...messageIds) as Array<Record<string, unknown>>
+    }
+
     const checkpoint = input.merkleRoot
       ? (this.db
           .prepare('SELECT * FROM audit_checkpoints WHERE merkle_root = ? ORDER BY created_at DESC LIMIT 1')
@@ -1321,10 +1356,68 @@ export class SqliteArchiveRepository implements ArchiveRepository {
         }
       : undefined
 
-    return {
+    const proofs = messageIds
+      .map((messageId) => this.getMerkleProof(messageId))
+      .filter((proof): proof is NonNullable<typeof proof> => Boolean(proof))
+
+    const normalizedReads = sealRows.map((row) => ({
+      id: Number(row.id),
+      document_id: String(row.document_id),
+      actor_id: String(row.actor_id),
+      query_timestamp: String(row.query_timestamp),
+      query_parameters_hash: String(row.query_parameters_hash),
+      result_hash: String(row.result_hash),
+      result_status: String(row.result_status),
+      signature: String(row.signature),
+      trace_id: row.trace_id ? String(row.trace_id) : undefined,
+      node_id: row.node_id ? String(row.node_id) : undefined,
+    }))
+    const normalizedMessages = messageRows.map((row) => {
+      const envelope = JSON.parse(String(row.payload_json)) as MessageEnvelope
+      return {
+        id: String(row.id),
+        genre: String(row.genre),
+        payload: envelope.payload,
+        actor: envelope.actor,
+        submitted_at: String(row.submitted_at),
+        metadata: envelope.metadata ?? {},
+        archived_at: String(row.archived_at),
+      }
+    })
+    const normalizedTransitions = transitionRows.map((row) => ({
+      message_id: String(row.message_id),
+      from_state: String(row.from_state),
+      to_state: String(row.to_state),
+      sequence_no: Number(row.sequence_no),
+      actor_id: row.actor_id ? String(row.actor_id) : undefined,
+      sealed_at: row.sealed_at ? String(row.sealed_at) : undefined,
+      reason: row.reason ? String(row.reason) : undefined,
+      prev_transition_hash: row.prev_transition_hash ? String(row.prev_transition_hash) : undefined,
+      at: String(row.at),
+    }))
+    const normalizedSeals = sealChainRows.map((row) => ({
+      message_id: String(row.message_id),
+      seal_id: String(row.seal_id),
+      stage: String(row.stage),
+      prev_hash: String(row.prev_hash),
+      hash: String(row.hash),
+      signature: String(row.signature),
+      created_at: String(row.created_at),
+      payload: JSON.parse(String(row.payload_json)) as Record<string, unknown>,
+    }))
+
+    const bundleCore = {
       checkpoint: normalizedCheckpoint,
-      reads: sealRows,
+      reads: normalizedReads,
+      messages: normalizedMessages,
+      transitions: normalizedTransitions,
+      seals: normalizedSeals,
+      proofs,
+    }
+    return {
+      ...bundleCore,
       digest: sha256(JSON.stringify(normalizedCheckpoint ?? {})),
+      bundle_digest: sha256(JSON.stringify(bundleCore)),
     }
   }
 

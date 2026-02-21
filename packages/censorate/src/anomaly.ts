@@ -43,12 +43,37 @@ export class AnomalyDetector {
   constructor(private readonly repository: AlertRepository) {}
 
   async detectVelocity(samples: VelocitySample[], thresholdPerMinute: number): Promise<AnomalyAlert | undefined> {
-    if (samples.length <= thresholdPerMinute) return undefined
-    return this.emit('velocity', 'critical', {
-      actorId: samples[0]?.actorId,
-      evidence: { count: samples.length, threshold: thresholdPerMinute },
-      actionTaken: 'quarantine',
-    })
+    if (samples.length === 0) return undefined
+
+    const byActor = new Map<string, number[]>()
+    for (const sample of samples) {
+      const ts = new Date(sample.timestampIso).getTime()
+      if (!Number.isFinite(ts)) continue
+      const arr = byActor.get(sample.actorId) ?? []
+      arr.push(ts)
+      byActor.set(sample.actorId, arr)
+    }
+
+    for (const [actorId, timestamps] of byActor) {
+      if (timestamps.length === 0) continue
+      timestamps.sort((a, b) => a - b)
+      const spanMs = Math.max(timestamps[timestamps.length - 1] - timestamps[0], 1000)
+      const ratePerMinute = (timestamps.length * 60_000) / spanMs
+      if (ratePerMinute > thresholdPerMinute) {
+        return this.emit('velocity', 'critical', {
+          actorId,
+          evidence: {
+            count: timestamps.length,
+            threshold_per_minute: thresholdPerMinute,
+            rate_per_minute: Number(ratePerMinute.toFixed(2)),
+            span_ms: spanMs,
+          },
+          actionTaken: 'quarantine',
+        })
+      }
+    }
+
+    return undefined
   }
 
   async detectTemporal(sample: TemporalSample, driftMsThreshold: number): Promise<AnomalyAlert | undefined> {

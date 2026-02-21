@@ -101,14 +101,26 @@ export interface PlumtreeBroadcast {
 /** @public Frozen in v1.x */
 export class InMemoryPlumtree implements PlumtreeBroadcast {
   private readonly seen = new Set<string>()
+  private readonly peers = new Set<string>()
 
-  constructor(private readonly fanout = 3) {}
+  constructor(private readonly fanout = 3, initialPeers: string[] = []) {
+    for (const peer of initialPeers) this.peers.add(peer)
+  }
+
+  setPeers(peers: string[]): void {
+    this.peers.clear()
+    for (const peer of peers) {
+      if (peer) this.peers.add(peer)
+    }
+  }
+
+  peerCount(): number {
+    return this.peers.size
+  }
 
   eagerPush(message: BroadcastMessage): string[] {
     this.seen.add(message.id)
-    const recipients: string[] = []
-    for (let i = 0; i < this.fanout; i += 1) recipients.push(`peer-${i + 1}`)
-    return recipients
+    return [...this.peers].sort().slice(0, this.fanout)
   }
 
   lazyDigest(digestIds: string[]): string[] {

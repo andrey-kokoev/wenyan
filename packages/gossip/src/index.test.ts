@@ -16,9 +16,11 @@ describe('gossip primitives', () => {
   })
 
   it('dedupes eager/lazy plumtree delivery', () => {
-    const tree = new InMemoryPlumtree(2)
+    const tree = new InMemoryPlumtree(2, ['peer-b', 'peer-a', 'peer-c'])
     const recipients = tree.eagerPush({ id: 'm1', topic: 'seal', payload: {} })
-    expect(recipients).toEqual(['peer-1', 'peer-2'])
+    expect(recipients).toEqual(['peer-a', 'peer-b'])
+    tree.setPeers(['peer-c'])
+    expect(tree.peerCount()).toBe(1)
     expect(tree.lazyDigest(['m1', 'm2'])).toEqual(['m2'])
   })
 

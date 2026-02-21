@@ -89,6 +89,7 @@ describe('Wenyan v0.4.0 rituals', () => {
   it('Ritual 1: Gossip relay preserves seal integrity and returns archival confirmation', async () => {
     const { repo } = await setupOffice('relay')
     const gossip = new InMemoryPlumtree(3)
+    gossip.setPeers(['gossip://beijing:7946', 'gossip://nanjing:7946', "gossip://xi-an:7946"])
     const gossiped: string[] = []
     const app = buildGateway(repo, new ReliableChannel(), THREE_IMPERIAL, {
       distributedMode: 'consort',
@@ -202,6 +203,15 @@ describe('Wenyan v0.4.0 rituals', () => {
 
   it('Ritual 5: Imperial broadcast fanout is eager and deduplicated', () => {
     const tree = new InMemoryPlumtree(7)
+    tree.setPeers([
+      'gossip://n1:7946',
+      'gossip://n2:7946',
+      'gossip://n3:7946',
+      'gossip://n4:7946',
+      'gossip://n5:7946',
+      'gossip://n6:7946',
+      'gossip://n7:7946',
+    ])
     const recipients = tree.eagerPush({ id: 'edict-protocol-1', topic: 'protocol', payload: { quorum: 1 } })
     expect(recipients).toHaveLength(7)
 
