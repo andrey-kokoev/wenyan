@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/actor",
+  "name": "@andrey-kokoev/wenyan-actor",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,7 +30,7 @@
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
-    "@wenyan/core": "workspace:*"
+    "@andrey-kokoev/wenyan-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

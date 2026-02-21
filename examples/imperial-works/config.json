@@ -1,0 +1,34 @@
+{
+  "nodes": [
+    "emperor",
+    "minister_works",
+    "minister_finance",
+    "censor_chief",
+    "foreman_electrical",
+    "foreman_structural",
+    "foreman_hydraulic",
+    "worker_gateway"
+  ],
+  "tiers": 4,
+  "thresholds": {
+    "pbft": 2,
+    "anomaly": 3,
+    "auditSample": 10
+  },
+  "load": {
+    "workers": 1000,
+    "sensors": 0,
+    "durationSeconds": 1800,
+    "seedTasks": 0,
+    "attackAttempts": 10
+  },
+  "timing": {
+    "routingLatencyMs": 800,
+    "syncSeconds": 8,
+    "convergenceMs": 5000
+  },
+  "storage": {
+    "hotDbTargetGb": 5,
+    "coldPrefix": "imperial-works"
+  }
+}

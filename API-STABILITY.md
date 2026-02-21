@@ -1,9 +1,9 @@
 # API Stability (v1.x)
 
 ## Frozen Packages
-- `@wenyan/core`
-- `@wenyan/gossip`
-- `@wenyan/bridge`
+- `@andrey-kokoev/wenyan-core`
+- `@andrey-kokoev/wenyan-gossip`
+- `@andrey-kokoev/wenyan-bridge`
 
 ## Rules
 - Symbols marked `@public` are frozen for v1.x.

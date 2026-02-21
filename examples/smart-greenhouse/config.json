@@ -1,0 +1,25 @@
+{
+  "nodes": ["wenyan", "mosquitto", "minio"],
+  "tiers": 2,
+  "thresholds": {
+    "pbft": 1,
+    "anomaly": 3,
+    "auditSample": 10
+  },
+  "load": {
+    "workers": 0,
+    "sensors": 100,
+    "durationSeconds": 300,
+    "seedTasks": 0,
+    "attackAttempts": 0
+  },
+  "timing": {
+    "routingLatencyMs": 800,
+    "syncSeconds": 8,
+    "convergenceMs": 5000
+  },
+  "storage": {
+    "hotDbTargetGb": 5,
+    "coldPrefix": "smart-greenhouse"
+  }
+}

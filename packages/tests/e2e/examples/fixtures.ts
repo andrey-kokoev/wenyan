@@ -6,6 +6,28 @@ export function todoTask(i: number): Record<string, unknown> {
   }
 }
 
+export const ritualNumbers = {
+  r1: {
+    pbftThreshold: 3,
+  },
+  r2: {
+    convergenceMs: 5000,
+  },
+  r3: {
+    attackAttempts: 12,
+  },
+  r6: {
+    sensorFloodCount: 120,
+  },
+  r7: {
+    legacyCount: 10,
+    lightLux: 1000,
+  },
+  r9: {
+    sampleCount: 10,
+  },
+} as const
+
 export function treasuryProposal(amount: number, to = 'GameStore'): Record<string, unknown> {
   return { to, amount, reason: 'allowance' }
 }

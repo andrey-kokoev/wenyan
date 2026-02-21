@@ -1,3 +1,3 @@
-export * from '@wenyan/core';
-export * from '@wenyan/actor';
-export * from '@wenyan/seal';
+export * from '@andrey-kokoev/wenyan-core';
+export * from '@andrey-kokoev/wenyan-actor';
+export * from '@andrey-kokoev/wenyan-seal';

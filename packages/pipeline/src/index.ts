@@ -1,6 +1,6 @@
-import { allowedGenresForRole, canAuthorize, canReview } from '@wenyan/actor'
-import type { ArchiveRepository } from '@wenyan/archive'
-import { canAuthorizeGenre, canDraftGenre, canReviewGenre, isImperialWorksGenre } from '@wenyan/imperial-works'
+import { allowedGenresForRole, canAuthorize, canReview } from '@andrey-kokoev/wenyan-actor'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
+import { canAuthorizeGenre, canDraftGenre, canReviewGenre, isImperialWorksGenre } from '@andrey-kokoev/wenyan-imperial-works'
 import {
   AppointmentLawContentSchema,
   ClassificationLawContentSchema,
@@ -13,8 +13,8 @@ import {
   type LawMode,
   type MessageEnvelope,
   type Transition,
-} from '@wenyan/core'
-import { DEV_SEAL_CONTEXT, createSealChain, verifySealChain, type SealContext } from '@wenyan/seal'
+} from '@andrey-kokoev/wenyan-core'
+import { InsufficientImperialAuthorityError, createSealChain, verifySealChain, type SealContext } from '@andrey-kokoev/wenyan-seal'
 import { LawResolver, type LawResolverEvent, type LawResolverOptions } from './law-resolver'
 import { loadLawContent } from './law-access'
 
@@ -40,9 +40,9 @@ export interface PipelineRuntimeOptions {
   distributedMode?: 'single' | 'consort'
   consensusKind?: 'none' | 'pbft'
   pbftConsensus?: {
-    proposeTiDefinition(proposalId: string, leaderNodeId: string): unknown
-    onPrepare(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
-    onCommit(msg: { proposalId: string; viewNo: number; nodeId: string; signature: string; at: string }): void
+    proposeTiDefinition(proposalId: string, leaderNodeId: string): Promise<unknown> | unknown
+    onPrepare(msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'prepare'; signature: string; at: string }): Promise<boolean> | boolean
+    onCommit(msg: { proposalId: string; viewNo: number; nodeId: string; phase: 'commit'; signature: string; at: string }): Promise<boolean> | boolean
     commitIfThreshold(proposalId: string): boolean
     currentView(): number
   }
@@ -378,7 +378,12 @@ async function applySealsAndArchive(
   sealContext: SealContext,
 ): Promise<PipelineResult> {
   const seals = await createSealChain(message, sealContext)
-  const valid = await verifySealChain(message, seals, sealContext)
+  let valid = false
+  try {
+    valid = await verifySealChain(message, seals, sealContext)
+  } catch {
+    valid = false
+  }
   if (!valid) {
     throw new SealInvalidError()
   }
@@ -394,10 +399,16 @@ async function applySealsAndArchive(
   return { messageId: message.id, finalState: 'archived' }
 }
 
+function mapSealFailure(error: unknown): string | undefined {
+  if (error instanceof InsufficientImperialAuthorityError) return 'insufficient-imperial-authority'
+  if (error instanceof SealInvalidError) return 'invalid-seal-chain'
+  return undefined
+}
+
 export async function finalizePendingMessage(
   repo: ArchiveRepository,
   messageId: string,
-  sealContext: SealContext = DEV_SEAL_CONTEXT,
+  sealContext: SealContext,
   options: PipelineRuntimeOptions = {},
 ): Promise<PipelineResult> {
   const resolver = resolverFor(repo, options)
@@ -420,24 +431,33 @@ export async function finalizePendingMessage(
     const pbft = options.pbftConsensus
     if (!pbft) return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
     const nodeId = options.nodeId ?? 'local-node'
-    pbft.proposeTiDefinition(messageId, nodeId)
-    const viewNo = pbft.currentView()
-    pbft.onPrepare({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:prepare`, at: new Date().toISOString() })
-    pbft.onCommit({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:commit`, at: new Date().toISOString() })
+    try {
+      await pbft.proposeTiDefinition(messageId, nodeId)
+    } catch {
+      return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
+    }
     if (!pbft.commitIfThreshold(messageId)) {
       return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
     }
   }
 
-  const result = await applySealsAndArchive(repo, withSnapshot, sealContext)
-  maybeInvalidateLawFromMessage(resolver, withSnapshot)
-  return result
+  try {
+    const result = await applySealsAndArchive(repo, withSnapshot, sealContext)
+    maybeInvalidateLawFromMessage(resolver, withSnapshot)
+    return result
+  } catch (error) {
+    const reason = mapSealFailure(error)
+    if (!reason) throw error
+    const current = (await repo.snapshotState(withSnapshot.id)) ?? 'pending'
+    await appendNextTransition(repo, withSnapshot, current, 'rejected', reason)
+    return { messageId, finalState: 'rejected', reason }
+  }
 }
 
 export async function processDocketMessage(
   repo: ArchiveRepository,
   messageId: string,
-  sealContext: SealContext = DEV_SEAL_CONTEXT,
+  sealContext: SealContext,
   options: PipelineRuntimeOptions = {},
 ): Promise<PipelineResult> {
   const resolver = resolverFor(repo, options)
@@ -509,17 +529,27 @@ export async function processDocketMessage(
       return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
     }
     const nodeId = options.nodeId ?? 'local-node'
-    pbft.proposeTiDefinition(messageId, nodeId)
-    const viewNo = pbft.currentView()
-    pbft.onPrepare({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:prepare`, at: new Date().toISOString() })
-    pbft.onCommit({ proposalId: messageId, viewNo, nodeId, signature: `${nodeId}:${messageId}:commit`, at: new Date().toISOString() })
+    try {
+      await pbft.proposeTiDefinition(messageId, nodeId)
+    } catch {
+      await appendNextTransition(repo, materialized, 'reviewed', 'pending', 'awaiting-pbft-consensus')
+      return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
+    }
     if (!pbft.commitIfThreshold(messageId)) {
       await appendNextTransition(repo, materialized, 'reviewed', 'pending', 'awaiting-pbft-consensus')
       return { messageId, finalState: 'pending', reason: 'awaiting-pbft-consensus' }
     }
   }
 
-  const result = await applySealsAndArchive(repo, materialized, sealContext)
-  maybeInvalidateLawFromMessage(resolver, materialized)
-  return result
+  try {
+    const result = await applySealsAndArchive(repo, materialized, sealContext)
+    maybeInvalidateLawFromMessage(resolver, materialized)
+    return result
+  } catch (error) {
+    const reason = mapSealFailure(error)
+    if (!reason) throw error
+    const current = (await repo.snapshotState(materialized.id)) ?? 'pending'
+    await appendNextTransition(repo, materialized, current, 'rejected', reason)
+    return { messageId, finalState: 'rejected', reason }
+  }
 }

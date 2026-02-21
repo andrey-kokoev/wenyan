@@ -1,6 +1,10 @@
-const at = process.argv.find((x) => x.startsWith('--at='))?.slice('--at='.length)
-if (at) {
-  console.log(JSON.stringify({ at, value: 2.5, certainty: 'archived' }))
-} else {
-  console.log(JSON.stringify({ ok: true }))
+import { loadExampleConfig, requiredArg } from '../../shared/config'
+
+const at = requiredArg('--at')
+loadExampleConfig(requiredArg('--config'))
+const valueArg = requiredArg('--value')
+const value = Number(valueArg)
+if (!Number.isFinite(value)) {
+  throw new Error('--value must be numeric')
 }
+console.log(JSON.stringify({ at, value, certainty: 'archived' }))

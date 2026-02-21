@@ -8,7 +8,7 @@ import { ReliableChannel } from '../../channel/src/index'
 import { DEV_SEAL_CONTEXT } from '../../seal/src/index'
 import { createEmptyOffice, applyGenesisFromDir } from '../../genesis/src/index'
 import { SwimMembership } from '../../gossip/src/index'
-import { PbftConsensus } from '../../consensus/src/index'
+import { createPbftFixture } from './pbft-helpers'
 
 const tempDirs = new Set<string>()
 
@@ -26,6 +26,24 @@ async function setupOffice(name: string): Promise<{ dir: string; repo: SqliteArc
   repo.initialize()
   repo.migrate()
   return { dir, repo }
+}
+
+async function waitForState(
+  app: ReturnType<typeof buildGateway>,
+  id: string,
+  expected: string,
+  timeoutMs = 5000,
+): Promise<{ state: string; transitions: Array<{ reason?: string }> }> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const status = await app.request(`/messages/${id}`)
+    if (status.status === 200) {
+      const payload = await status.json() as { state: string; transitions: Array<{ reason?: string }> }
+      if (payload.state === expected) return payload
+    }
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+  }
+  throw new Error(`timeout waiting for ${id} -> ${expected}`)
 }
 
 describe('Consort protocol', () => {
@@ -92,10 +110,7 @@ describe('Consort protocol', () => {
 
   it('gates ti_definition archival behind pbft threshold in consort pbft mode', async () => {
     const { repo } = await setupOffice('pbft')
-    const pbft = new PbftConsensus({
-      replicaSet: ['node-a', 'node-b', 'node-c', 'node-d'],
-      threshold: 3,
-    })
+    const { pbft } = await createPbftFixture(['node-a', 'node-b', 'node-c', 'node-d'], 3)
 
     const app = buildGateway(repo, new ReliableChannel(), { ...DEV_SEAL_CONTEXT, imperialSignatures: ['sig-a', 'sig-b', 'sig-c'] }, {
       distributedMode: 'consort',
@@ -122,11 +137,9 @@ describe('Consort protocol', () => {
       }),
     })
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(202)
 
-    const status = await app.request('/messages/ti-pbft-1')
-    expect(status.status).toBe(200)
-    const payload = await status.json() as { state: string; transitions: Array<{ reason?: string }> }
+    const payload = await waitForState(app, 'ti-pbft-1', 'pending')
     expect(payload.state).toBe('pending')
     expect(payload.transitions.at(-1)?.reason).toBe('awaiting-pbft-consensus')
 

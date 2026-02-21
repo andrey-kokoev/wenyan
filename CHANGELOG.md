@@ -7,7 +7,7 @@ All notable changes to this project are documented in this file.
 ### Added
 - Production-hardening security/process artifacts: `SECURITY.md`, `audit/`, fuzz harness scaffolds, SBOM tooling, and reproducible build documentation.
 - Formal specification set under `spec/` with protocol and paper drafts for v1.0.
-- Benchmark package `@wenyan/benchmark` with deterministic toy-profile regression checks and stress-profile reporting.
+- Benchmark package `@andrey-kokoev/wenyan-benchmark` with deterministic toy-profile regression checks and stress-profile reporting.
 - Infrastructure delivery under `infra/`: Terraform module/example, Helm chart, Go operator stub, and monitoring assets.
 - Deployment runbooks under `docs/deploy/` (`quickstart`, `production`, `enterprise`) for local, 3-node, and enterprise setup paths.
 - Changesets-based release/versioning setup and release-checklist updates for v1.0.
@@ -16,7 +16,7 @@ All notable changes to this project are documented in this file.
 - Seal internals split into dedicated crypto/chain modules while preserving public exports.
 - Gateway and bridge boundary hardening (payload/header limits and ingress sanitization) without endpoint contract changes.
 - Server runtime includes optional Prometheus-compatible `/metrics` endpoint with Wenyan counters/histograms.
-- Public API stability policy formalized for `@wenyan/core`, `@wenyan/gossip`, and `@wenyan/bridge`.
+- Public API stability policy formalized for `@andrey-kokoev/wenyan-core`, `@andrey-kokoev/wenyan-gossip`, and `@andrey-kokoev/wenyan-bridge`.
 
 ### Deferred External Gates
 - External security firm sign-off, long burn-in, and external registry publication are tracked but not blocking for in-repo v1.0 implementation.
@@ -24,9 +24,9 @@ All notable changes to this project are documented in this file.
 ## [0.7.0] - 2026-02-20
 
 ### Added
-- New `@wenyan/imperial-works` package with role hierarchy enforcement helpers, `EmergencyRouter`, and construction-specific anomaly detectors.
-- New `@wenyan/mobile-foreman` package (PWA-first primitives) with offline review queueing and deterministic sync helpers.
-- New bridge adapter contracts for imperial works domains: `erp`, `payroll`, and `regulatory` protocols in `@wenyan/bridge`.
+- New `@andrey-kokoev/wenyan-imperial-works` package with role hierarchy enforcement helpers, `EmergencyRouter`, and construction-specific anomaly detectors.
+- New `@andrey-kokoev/wenyan-mobile-foreman` package (PWA-first primitives) with offline review queueing and deterministic sync helpers.
+- New bridge adapter contracts for imperial works domains: `erp`, `payroll`, and `regulatory` protocols in `@andrey-kokoev/wenyan-bridge`.
 - New archive v8 runtime tables in sqlite/cloudflare adapters: `bridge_dead_letter` and `site_runtime_state`.
 - New gateway emergency endpoint: `POST /api/wenyan/emergency/safety-incident`.
 - New imperial-works examples suite (`examples/imperial-works`) and executable v0.7.0 ritual e2e coverage (`packages/tests/e2e/examples/rituals-0.7.0.e2e.test.ts`).
@@ -43,8 +43,8 @@ All notable changes to this project are documented in this file.
 ## [0.6.0] - 2026-02-20
 
 ### Added
-- New `@wenyan/censorate` package with `WenyanTracer`, `AuditService`, `AnomalyDetector`, and `CheckpointService`.
-- Censorate schemas/types in `@wenyan/core`:
+- New `@andrey-kokoev/wenyan-censorate` package with `WenyanTracer`, `AuditService`, `AnomalyDetector`, and `CheckpointService`.
+- Censorate schemas/types in `@andrey-kokoev/wenyan-core`:
   `Seal0ReceiptSchema`, `AuditQuerySchema`, `AnomalyRuleSchema`, `AnomalyAlertSchema`, and `CensorateRuntimeConfigSchema`.
 - New edict law types: `access_control` and `detection_rule`.
 - Archive migration v7 (SQLite + Cloudflare) with new tables:
@@ -74,13 +74,13 @@ All notable changes to this project are documented in this file.
 - Deterministic anomaly detection and quarantine signaling for velocity/temporal/geographic/coalition patterns.
 
 ### Deferred
-- `@wenyan/censorate-ui` remains out of scope for 0.6.0.
+- `@andrey-kokoev/wenyan-censorate-ui` remains out of scope for 0.6.0.
 - Prometheus dashboard productization remains out of scope for 0.6.0.
 
 ## [0.5.0] - 2026-02-20
 
 ### Added
-- **Bridge Runtime Package**: Added `@wenyan/bridge` as a standalone Node bridge runtime (`wenyan-bridge`) with `IntoWenyan`/`FromWenyan` adapter contracts and sync orchestration primitives.
+- **Bridge Runtime Package**: Added `@andrey-kokoev/wenyan-bridge` as a standalone Node bridge runtime (`wenyan-bridge`) with `IntoWenyan`/`FromWenyan` adapter contracts and sync orchestration primitives.
 - **Adapter Delivery (Staged)**: Added production NATS adapter plus staged Kafka/MQTT adapters with contract-complete lifecycle and deterministic test harness hooks.
 - **Bridge Archive Persistence (v6)**: Added `foreign_sync_state`, `foreign_rejected`, and `bridge_outbound_queue` tables and repository APIs in both SQLite and Cloudflare adapters.
 - **Bridge CLI Commands**: Added `wenyan bridge run`, `wenyan bridge status`, `wenyan bridge sync`, and `wenyan bridge dry-run`.
@@ -101,7 +101,7 @@ All notable changes to this project are documented in this file.
 ## [0.4.0] - 2026-02-20
 
 ### Added
-- **Consort Scaffolding**: Added `@wenyan/gossip`, `@wenyan/crdt`, and `@wenyan/consensus` packages with SWIM/Plumtree-style membership+broadcast primitives, CRDT merge helpers, and PBFT lifecycle APIs.
+- **Consort Scaffolding**: Added `@andrey-kokoev/wenyan-gossip`, `@andrey-kokoev/wenyan-crdt`, and `@andrey-kokoev/wenyan-consensus` packages with SWIM/Plumtree-style membership+broadcast primitives, CRDT merge helpers, and PBFT lifecycle APIs.
 - **Distributed Runtime Config**: Added bootstrap config sections for `[distributed]`, `[consensus]`, and `[sync]` with safe defaults (`mode = single`, `consensus = none`).
 - **Archive v5 Foundations**: Added content-addressed storage metadata, gossip log table, archive state roots, sync-range API, and Merkle root/proof interfaces in SQLite and Cloudflare adapters.
 - **Mesh API/CLI Surface**: Added gateway mesh endpoints (mounted at `/api/wenyan/mesh/*` in server runtime: `/join`, `/sync`, `/status`, `/merkle-root`) and CLI commands (`sync --peer`, `mesh status`, `--join gossip://...` support).
@@ -117,7 +117,7 @@ All notable changes to this project are documented in this file.
 - **Constitutional Stratification**: Distinguished `ti_definition` (constitutional) from `edict` (legislative) with elevated seal thresholds—`ti_definition` defaults to 3 imperial signatures, while standard `edict` defaults to 1.
 - **Pre-validation at Tongzheng Si**: Gateway now queries archive for active `ti_definition` before accepting documents; rejects undefined genres with 503 "Schema Undefined" rather than accepting into pipeline.
 - **Cross-Reference Integrity**: Shenfu stage validates that `edict.target_genre` references existing `ti_definition` document; rejects dangling references with 422 "Invalid Constitutional Reference".
-- **Package Separation**: Split monorepo into `@wenyan/core` (empty Wenyan—categorical structure without genesis) and `@wenyan/genesis` (bootstrap schemas and `--init` command), enforcing architectural boundary between empty structure and seed content.
+- **Package Separation**: Split monorepo into `@andrey-kokoev/wenyan-core` (empty Wenyan—categorical structure without genesis) and `@andrey-kokoev/wenyan-genesis` (bootstrap schemas and `--init` command), enforcing architectural boundary between empty structure and seed content.
 - **Merkle Verification for Mesh Join**: CLI join flow now verifies constitutional Merkle root parity before writing the local join marker.
 - **Deterministic Replay Engine**: Formalized `replay: Log → State` in the archive layer as a pure fold over transitions.
 - **Strict Mode Enforcement**: Removed legacy compat fallback paths; system now fails-closed on missing law or undefined genre with no silent downgrade to in-memory or default behaviors.
@@ -141,7 +141,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - Law-in-Dang'an runtime model with archived `edict` documents for runtime law and archived `ti_definition` documents for schema evolution.
-- Bootstrap config schema and parser (`archive/genesis/gateway/law_cache`) with strict typing in `@wenyan/core`.
+- Bootstrap config schema and parser (`archive/genesis/gateway/law_cache`) with strict typing in `@andrey-kokoev/wenyan-core`.
 - Law resolver service with cache, preload, ambiguity handling, and fallback events.
 - Archive law query APIs (`getCurrentLaw`, `getLawSet`) and deterministic law resolution semantics.
 - SQLite and Cloudflare archive indexing/backfill for `edict_index` and `ti_definition_index`.

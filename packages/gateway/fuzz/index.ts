@@ -1,7 +1,7 @@
 import { buildGateway } from '../src'
-import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
-import { ReliableChannel } from '@wenyan/channel'
-import { DEV_SEAL_CONTEXT } from '@wenyan/seal'
+import { SqliteArchiveRepository } from '@andrey-kokoev/wenyan-archive/sqlite'
+import { ReliableChannel } from '@andrey-kokoev/wenyan-channel'
+import { DEV_SEAL_CONTEXT } from '@andrey-kokoev/wenyan-seal'
 
 async function main(): Promise<void> {
   const repo = new SqliteArchiveRepository(':memory:')

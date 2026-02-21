@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { parseBootstrapConfig } from '@wenyan/core'
+import { parseBootstrapConfig } from '@andrey-kokoev/wenyan-core'
 import { BridgeGateway } from './gateway'
-import type { ArchiveRepository } from '@wenyan/archive'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
 import type { AdapterContext, BridgeAdapter, FromWenyan, IntoWenyan } from './types'
-import type { MessageEnvelope } from '@wenyan/core'
+import type { MessageEnvelope } from '@andrey-kokoev/wenyan-core'
 
 class NullInto implements IntoWenyan<unknown> {
   translate(): never {
@@ -68,7 +68,7 @@ describe('bridge outbound routing', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input)
-      if (url.includes('/stream')) {
+      if (url.includes('/stream/replay')) {
         return new Response(
           JSON.stringify({ events: [{ at: new Date().toISOString(), type: 'archive.appended', messageId: 'm-1' }] }),
           { status: 200, headers: { 'content-type': 'application/json' } },
@@ -112,7 +112,7 @@ describe('bridge outbound routing', () => {
     await bridge.stop()
 
     expect(result.pushed).toBe(0)
+    expect(new Set(enqueued)).toEqual(new Set(['k1']))
     expect(enqueued.length).toBeGreaterThan(0)
-    expect(enqueued.every((id) => id === 'k1')).toBe(true)
   })
 })

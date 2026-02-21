@@ -1,5 +1,5 @@
 import { StringCodec, connect, type Msg, type NatsConnection } from 'nats'
-import type { BridgeAdapterConfig, MessageEnvelope, NatsBridgeAdapterConfig } from '@wenyan/core'
+import type { BridgeAdapterConfig, MessageEnvelope, NatsBridgeAdapterConfig } from '@andrey-kokoev/wenyan-core'
 import type { AdapterContext, BridgeAdapter, ForeignMetadata, FromWenyan, IntoWenyan, TranslationResult } from '../types'
 
 interface NatsForeignPayload {

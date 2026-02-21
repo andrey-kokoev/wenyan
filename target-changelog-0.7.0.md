@@ -1,8 +1,8 @@
 ## [0.7.0] - Unreleased
 
 ### Added
-- `@wenyan/imperial-works` package with hierarchy, emergency routing, and construction anomaly detection helpers.
-- `@wenyan/mobile-foreman` package with PWA-first offline queue and sync primitives.
+- `@andrey-kokoev/wenyan-imperial-works` package with hierarchy, emergency routing, and construction anomaly detection helpers.
+- `@andrey-kokoev/wenyan-mobile-foreman` package with PWA-first offline queue and sync primitives.
 - Bridge adapter modules for `erp`, `payroll`, and `regulatory` protocols (simulator-backed contracts).
 - Archive adapter runtime support for `bridge_dead_letter` and `site_runtime_state`.
 - Imperial works example scaffold under `examples/imperial-works/`.

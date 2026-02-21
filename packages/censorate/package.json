@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/censorate",
+  "name": "@andrey-kokoev/wenyan-censorate",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -26,12 +26,12 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "prepublishOnly": "pnpm build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src --passWithNoTests",
+    "test": "vitest run src",
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
-    "@wenyan/core": "workspace:*"
+    "@andrey-kokoev/wenyan-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",

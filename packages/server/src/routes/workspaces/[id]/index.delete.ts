@@ -7,7 +7,7 @@ import type { Context } from "hono"
 import { drizzle } from "drizzle-orm/d1"
 import type { Bindings, Variables } from "../../../types/env"
 import { workspaces } from "../../../database/workspaces/schema"
-import { isAdmin } from "@wenyan/shared"
+import { isAdmin } from "@andrey-kokoev/wenyan-shared"
 import { assertWorkspaceAccess } from "../../../utils/workspaces"
 import { validatePositiveInt } from "../../../utils/validation"
 

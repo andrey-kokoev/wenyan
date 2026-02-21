@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/pipeline",
+  "name": "@andrey-kokoev/wenyan-pipeline",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,11 +30,11 @@
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
-    "@wenyan/actor": "workspace:*",
-    "@wenyan/archive": "workspace:*",
-    "@wenyan/core": "workspace:*",
-    "@wenyan/imperial-works": "workspace:*",
-    "@wenyan/seal": "workspace:*"
+    "@andrey-kokoev/wenyan-actor": "workspace:*",
+    "@andrey-kokoev/wenyan-archive": "workspace:*",
+    "@andrey-kokoev/wenyan-core": "workspace:*",
+    "@andrey-kokoev/wenyan-imperial-works": "workspace:*",
+    "@andrey-kokoev/wenyan-seal": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",

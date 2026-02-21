@@ -1,7 +1,7 @@
 import type { Context } from "hono"
 import { drizzle } from "drizzle-orm/d1"
 import { eq } from "drizzle-orm"
-import { success, apiError } from "@wenyan/shared"
+import { success, apiError } from "@andrey-kokoev/wenyan-shared"
 import { externalUserIdsRelRoles } from "../../../auth/schema"
 
 export async function deleteExternalUserIdRelRole(c: Context) {

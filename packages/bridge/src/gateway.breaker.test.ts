@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { parseBootstrapConfig } from '@wenyan/core'
+import { parseBootstrapConfig } from '@andrey-kokoev/wenyan-core'
 import { BridgeGateway } from './gateway'
-import type { ArchiveRepository } from '@wenyan/archive'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
 import type { AdapterContext, BridgeAdapter, FromWenyan, IntoWenyan } from './types'
-import type { MessageEnvelope } from '@wenyan/core'
+import type { MessageEnvelope } from '@andrey-kokoev/wenyan-core'
 
 class NullInto implements IntoWenyan<unknown> {
   translate(): never {
@@ -77,7 +77,7 @@ describe('bridge circuit breaker', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input)
-      if (url.includes('/stream')) {
+      if (url.includes('/stream/replay')) {
         return new Response(JSON.stringify({ events: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
       }
       if (url.includes('/messages/m-1') || url.includes('/messages/m-2')) {

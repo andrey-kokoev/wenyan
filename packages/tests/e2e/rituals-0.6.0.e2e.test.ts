@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { createHmac } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -52,20 +53,63 @@ async function submit(app: ReturnType<typeof buildGateway>, message: MessageEnve
   })
 }
 
+function authHeaders(actorId: string, role: string): Record<string, string> {
+  const now = Math.floor(Date.now() / 1000)
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const payload = Buffer.from(
+    JSON.stringify({
+      sub: actorId,
+      role,
+      iss: 'wenyan.local',
+      aud: 'wenyan-gateway',
+      iat: now,
+      exp: now + 3600,
+    }),
+  ).toString('base64url')
+  const signature = createHmac('sha256', 'wenyan-local-jwt-secret').update(`${header}.${payload}`).digest('base64url')
+  return { authorization: `Bearer ${header}.${payload}.${signature}` }
+}
+
+async function waitForState(
+  app: ReturnType<typeof buildGateway>,
+  id: string,
+  expected: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const res = await app.request(`/messages/${id}`, {
+      headers: authHeaders('ritual-actor', 'genesis_admin'),
+    })
+    if (res.status === 200) {
+      const json = await res.json() as { state?: string }
+      if (json.state === expected) return
+      if (json.state === 'rejected' && expected !== 'rejected') {
+        throw new Error(`message ${id} rejected while waiting for ${expected}`)
+      }
+    }
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+  }
+  throw new Error(`timeout waiting for ${id} -> ${expected}`)
+}
+
 async function ensureGenre(app: ReturnType<typeof buildGateway>, genre: string, required: string[] = []): Promise<void> {
+  const id = `ti-${genre}-${Date.now()}`
   const res = await submit(
     app,
-    baseMessage(`ti-${genre}-${Date.now()}`, 'ti_definition', {
+    baseMessage(id, 'ti_definition', {
       target_genre: genre,
       version: '1.0.0',
       schema: { type: 'object', required },
     }),
   )
-  expect(res.status).toBe(201)
+  expect(res.status).toBe(202)
+  await waitForState(app, id, 'archived')
 }
 
 async function seedAccessControl(app: ReturnType<typeof buildGateway>): Promise<void> {
-  const law = baseMessage(`ac-${Date.now()}`, 'edict', {
+  const id = `ac-${Date.now()}`
+  const law = baseMessage(id, 'edict', {
     law_type: 'access_control',
     version: '1.0.0',
     content: {
@@ -79,7 +123,8 @@ async function seedAccessControl(app: ReturnType<typeof buildGateway>): Promise<
     precedence: 100,
     effective_date: new Date().toISOString(),
   })
-  expect((await submit(app, law)).status).toBe(201)
+  expect((await submit(app, law)).status).toBe(202)
+  await waitForState(app, id, 'archived')
 }
 
 describe('Wenyan v0.6.0 rituals', () => {
@@ -87,7 +132,7 @@ describe('Wenyan v0.6.0 rituals', () => {
     const { repo, app } = await setupOffice('trace')
     await ensureGenre(app, 'petition', ['title'])
     const msg = baseMessage('r06-trace-1', 'petition', { title: 'observe' })
-    expect((await submit(app, msg)).status).toBe(201)
+    expect((await submit(app, msg)).status).toBe(202)
 
     const trace = await app.request(`/audit/trace/${msg.id}`)
     const json = await trace.json() as { spans: Array<{ name: string }> }
@@ -102,13 +147,11 @@ describe('Wenyan v0.6.0 rituals', () => {
     await seedAccessControl(app)
 
     const doc = baseMessage('tax-1645', 'tax_record', { year: 1645, amount: 12 })
-    expect((await submit(app, doc)).status).toBe(201)
+    expect((await submit(app, doc)).status).toBe(202)
+    await waitForState(app, doc.id, 'archived')
 
     const read = await app.request(`/messages/${doc.id}`, {
-      headers: {
-        'x-wenyan-actor-id': 'clerk-1',
-        'x-wenyan-actor-role': 'clerk',
-      },
+      headers: authHeaders('clerk-1', 'clerk'),
     })
     expect(read.status).toBe(200)
 
@@ -131,7 +174,7 @@ describe('Wenyan v0.6.0 rituals', () => {
           schema: { type: 'object' },
         }),
       )
-      expect(r.status).toBe(201)
+      expect(r.status).toBe(202)
     }
 
     const blocked = await submit(
@@ -142,11 +185,18 @@ describe('Wenyan v0.6.0 rituals', () => {
         schema: { type: 'object' },
       }),
     )
-    expect(blocked.status).toBe(403)
+    expect(blocked.status).toBe(202)
 
-    const anomaly = await app.request('/audit/anomaly?type=velocity')
-    const json = await anomaly.json() as { items: Array<{ alertType: string }> }
-    expect(json.items.length).toBeGreaterThan(0)
+    let items: Array<{ alertType: string }> = []
+    const started = Date.now()
+    while (Date.now() - started < 5000) {
+      const anomaly = await app.request('/audit/anomaly?type=velocity')
+      const json = await anomaly.json() as { items: Array<{ alertType: string }> }
+      items = json.items
+      if (items.length > 0) break
+      await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+    }
+    expect(items.length).toBeGreaterThan(0)
     repo.close()
   })
 
@@ -203,7 +253,7 @@ describe('Wenyan v0.6.0 rituals', () => {
         },
       }),
     )
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(202)
 
     const anomaly = await app.request('/audit/anomaly?type=coalition')
     const json = await anomaly.json() as { items: Array<{ alertType: string }> }
@@ -214,7 +264,7 @@ describe('Wenyan v0.6.0 rituals', () => {
   it('Ritual 7: audit export returns checkpoint bundle with digest', async () => {
     const { repo, app } = await setupOffice('export')
     await ensureGenre(app, 'petition', ['title'])
-    expect((await submit(app, baseMessage('exp-1', 'petition', { title: 'exportable' }))).status).toBe(201)
+    expect((await submit(app, baseMessage('exp-1', 'petition', { title: 'exportable' }))).status).toBe(202)
 
     const checkpoint = await app.request('/audit/checkpoint', {
       method: 'POST',
@@ -238,13 +288,11 @@ describe('Wenyan v0.6.0 rituals', () => {
     await seedAccessControl(app)
 
     const secret = baseMessage('mil-1', 'military_dispatch', { title: 'secret order' })
-    expect((await submit(app, secret)).status).toBe(201)
+    expect((await submit(app, secret)).status).toBe(202)
+    await waitForState(app, secret.id, 'archived')
 
     const denied = await app.request(`/messages/${secret.id}`, {
-      headers: {
-        'x-wenyan-actor-id': 'clerk-2',
-        'x-wenyan-actor-role': 'clerk',
-      },
+      headers: authHeaders('clerk-2', 'clerk'),
     })
     expect(denied.status).toBe(403)
 
@@ -262,7 +310,7 @@ describe('Wenyan v0.6.0 rituals', () => {
     const started = Date.now()
     for (let i = 0; i < count; i += 1) {
       const res = await submit(app, baseMessage(`perf-${i}`, 'petition', { title: `p-${i}` }))
-      expect(res.status).toBe(201)
+      expect(res.status).toBe(202)
     }
     const elapsed = Date.now() - started
     expect(elapsed).toBeLessThan(10_000)

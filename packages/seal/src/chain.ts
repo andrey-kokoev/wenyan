@@ -1,5 +1,5 @@
-import type { MessageEnvelope } from '@wenyan/core'
-import type { Provenance } from '@wenyan/actor'
+import type { MessageEnvelope } from '@andrey-kokoev/wenyan-core'
+import type { Provenance } from '@andrey-kokoev/wenyan-actor'
 import {
   digestHex,
   encodeCapabilityToken,
@@ -67,12 +67,15 @@ function payloadForStage(
     }
   }
   if (stage === 'shenfu-3') {
+    const iat = Math.floor(new Date(nowIso).getTime() / 1000)
     const capability = encodeCapabilityToken(
       {
         sub: message.actor.id,
         clearance: message.actor.role,
         aud: 'wenyan-pipeline',
-        iat: Math.floor(new Date(nowIso).getTime() / 1000),
+        iss: 'wenyan-seal',
+        iat,
+        exp: iat + 300,
       },
       context.capabilitySecret,
     )
@@ -204,7 +207,13 @@ export async function verifySealChain(message: MessageEnvelope, seals: SealRecor
 
     if (stage === 'shenfu-3') {
       const token = String(seal.payload?.capability ?? '')
-      if (!verifyCapabilityToken(token, context.capabilitySecret)) {
+      if (
+        !verifyCapabilityToken(token, context.capabilitySecret, {
+          aud: 'wenyan-pipeline',
+          sub: message.actor.id,
+          iss: 'wenyan-seal',
+        })
+      ) {
         return false
       }
     }

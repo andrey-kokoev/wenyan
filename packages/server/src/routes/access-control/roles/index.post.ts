@@ -1,7 +1,7 @@
 import type { Context } from "hono"
 import { drizzle } from "drizzle-orm/d1"
 import { z } from "zod"
-import { success, apiError, type ValidationErrorDetail } from "@wenyan/shared"
+import { success, apiError, type ValidationErrorDetail } from "@andrey-kokoev/wenyan-shared"
 import { roles } from "../../../auth/schema"
 
 const bodySchema = z.object({

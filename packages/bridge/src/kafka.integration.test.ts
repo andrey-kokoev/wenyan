@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { KafkaBridgeAdapter } from './adapters/kafka'
 
-const runIntegration = process.env.RUN_KAFKA_INTEGRATION === '1'
-const suite = runIntegration ? describe : describe.skip
-
-suite('kafka adapter integration', () => {
+describe('kafka adapter integration', () => {
   it('accepts simulated inbound payload and reports healthy lifecycle', async () => {
     const adapter = new KafkaBridgeAdapter({
       id: 'kafka-it',
@@ -56,7 +53,7 @@ suite('kafka adapter integration', () => {
     })
 
     expect(outbound.foreignId).toContain('edict')
-    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.length).toBe(1)
 
     await adapter.stop()
     const stopped = await adapter.health()

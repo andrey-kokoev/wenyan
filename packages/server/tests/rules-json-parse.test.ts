@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { parseRulesFromJsonInput } from '@wenyan/shared'
+import { parseRulesFromJsonInput } from '@andrey-kokoev/wenyan-shared'
 
 describe('parseRulesFromJsonInput', () => {
   it('parses the rules-to-create fixture', async () => {

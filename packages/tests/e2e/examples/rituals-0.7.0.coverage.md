@@ -9,3 +9,6 @@
 - R7 Three Bridges -> `rituals-0.7.0.e2e.test.ts` / R7 test
 - R8 Structural Cabal -> `rituals-0.7.0.e2e.test.ts` / R8 test
 - R9 Grand Opening -> `rituals-0.7.0.e2e.test.ts` / R9 test
+
+Notes:
+- All rituals run in strict default mode with no in-code skips.

@@ -13,24 +13,24 @@ If you want to understand the architectural rationale and design principles behi
 
 ## Packages
 
-- `packages/server` (`@wenyan/server`) - Cloudflare Hono server
-- `packages/shared` (`@wenyan/shared`) - compatibility/shared facade
-- `packages/core` (`@wenyan/core`) - schemas, envelope types, state transitions, bootstrap/law schemas
-- `packages/actor` (`@wenyan/actor`) - law-driven actor permission helpers
-- `packages/seal` (`@wenyan/seal`) - seal chain primitives and verification
-- `packages/archive` (`@wenyan/archive`) - append-only archive repository API + law/genre lookup
-- `packages/pipeline` (`@wenyan/pipeline`) - Caoni/Shenfu/Pizhun stages + law resolver
-- `packages/gateway` (`@wenyan/gateway`) - gateway routes and Tongzheng Si input filter
-- `packages/channel` (`@wenyan/channel`) - reliable local broadcast channel
-- `packages/gossip` (`@wenyan/gossip`) - SWIM/Plumtree-style consort gossip primitives
-- `packages/crdt` (`@wenyan/crdt`) - CRDT reconciliation for legislative conflicts
-- `packages/consensus` (`@wenyan/consensus`) - PBFT lifecycle for constitutional consensus
-- `packages/bridge` (`@wenyan/bridge`) - foreign protocol bridge runtime (standalone Node)
-- `packages/imperial-works` (`@wenyan/imperial-works`) - role hierarchy, emergency routing, and construction anomaly rules
-- `packages/mobile-foreman` (`@wenyan/mobile-foreman`) - PWA offline foreman queue and sync primitives
-- `packages/benchmark` (`@wenyan/benchmark`) - deterministic toy/stress benchmark harness
-- `packages/genesis` (`@wenyan/genesis`) - explicit genesis bootstrap (`createEmptyOffice`, `applyGenesis`)
-- `packages/cli` (`@wenyan/cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`, `imperialworks`, `mobile sync`
+- `packages/server` (`@andrey-kokoev/wenyan-server`) - Cloudflare Hono server
+- `packages/shared` (`@andrey-kokoev/wenyan-shared`) - compatibility/shared facade
+- `packages/core` (`@andrey-kokoev/wenyan-core`) - schemas, envelope types, state transitions, bootstrap/law schemas
+- `packages/actor` (`@andrey-kokoev/wenyan-actor`) - law-driven actor permission helpers
+- `packages/seal` (`@andrey-kokoev/wenyan-seal`) - seal chain primitives and verification
+- `packages/archive` (`@andrey-kokoev/wenyan-archive`) - append-only archive repository API + law/genre lookup
+- `packages/pipeline` (`@andrey-kokoev/wenyan-pipeline`) - Caoni/Shenfu/Pizhun stages + law resolver
+- `packages/gateway` (`@andrey-kokoev/wenyan-gateway`) - gateway routes and Tongzheng Si input filter
+- `packages/channel` (`@andrey-kokoev/wenyan-channel`) - reliable local broadcast channel
+- `packages/gossip` (`@andrey-kokoev/wenyan-gossip`) - SWIM/Plumtree-style consort gossip primitives
+- `packages/crdt` (`@andrey-kokoev/wenyan-crdt`) - CRDT reconciliation for legislative conflicts
+- `packages/consensus` (`@andrey-kokoev/wenyan-consensus`) - PBFT lifecycle for constitutional consensus
+- `packages/bridge` (`@andrey-kokoev/wenyan-bridge`) - foreign protocol bridge runtime (standalone Node)
+- `packages/imperial-works` (`@andrey-kokoev/wenyan-imperial-works`) - role hierarchy, emergency routing, and construction anomaly rules
+- `packages/mobile-foreman` (`@andrey-kokoev/wenyan-mobile-foreman`) - PWA offline foreman queue and sync primitives
+- `packages/benchmark` (`@andrey-kokoev/wenyan-benchmark`) - deterministic toy/stress benchmark harness
+- `packages/genesis` (`@andrey-kokoev/wenyan-genesis`) - explicit genesis bootstrap (`createEmptyOffice`, `applyGenesis`)
+- `packages/cli` (`@andrey-kokoev/wenyan-cli`) - `wenyan` CLI for `--init`, `draft`, `submit`, `status`, `query`, `stream`, `imperialworks`, `mobile sync`
 - `packages/tests` - shared fixtures used by server tests
 
 ## Storage adapters
@@ -47,14 +47,17 @@ If you want to understand the architectural rationale and design principles behi
 
 ## Runtime endpoints
 
-- `POST /api/wenyan/messages`
+- `POST /api/wenyan/messages` (enqueue-only, returns `202 Accepted`)
 - `GET /api/wenyan/messages/:id`
 - `GET /api/wenyan/messages?state=...`
-- `GET /api/wenyan/stream`
+- `GET /api/wenyan/stream` (SSE)
+- `GET /api/wenyan/stream/replay?since=...` (JSON polling replay)
 - `GET /api/wenyan/mesh/status`
 - `POST /api/wenyan/mesh/join`
 - `POST /api/wenyan/mesh/sync`
 - `GET /api/wenyan/mesh/merkle-root`
+
+Read endpoints enforce JWT actor authentication when `access_control` law requires it. Header spoofing via `x-wenyan-actor-*` is disabled by default.
 
 Bridge runtime (standalone):
 
@@ -83,6 +86,13 @@ genesis_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 host = "127.0.0.1"
 port = 8787
 
+[auth]
+jwt_issuer = "wenyan.local"
+jwt_audience = "wenyan-gateway"
+jwt_alg = "HS256"
+jwt_secret = "change-this-secret"
+allow_header_actor = false
+
 [law]
 mode = "strict"
 
@@ -99,6 +109,7 @@ kind = "none"
 replica_set = []
 constitutional_threshold = 3
 view_change_timeout_ms = 5000
+allow_single_replica = false
 
 [bridge]
 enabled = false
@@ -136,12 +147,12 @@ batch_size = 100
 
 ## Installation From GitHub Packages
 
-Authenticate npm for the `@wenyan` scope:
+Authenticate npm for the `@andrey-kokoev` scope:
 
 ```bash
 export GITHUB_TOKEN=YOUR_GITHUB_TOKEN
 cat > ~/.npmrc <<'EOF'
-@wenyan:registry=https://npm.pkg.github.com
+@andrey-kokoev:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
 EOF
 ```
@@ -149,24 +160,45 @@ EOF
 Install packages:
 
 ```bash
-npm install @wenyan/core @wenyan/cli @wenyan/gateway
+npm install @andrey-kokoev/wenyan-core @andrey-kokoev/wenyan-cli @andrey-kokoev/wenyan-gateway
 ```
 
-Published packages in v1.x:
+## Installation From npmjs
 
-- `@wenyan/core`
-- `@wenyan/actor`
-- `@wenyan/seal`
-- `@wenyan/archive`
-- `@wenyan/pipeline`
-- `@wenyan/gateway`
-- `@wenyan/channel`
-- `@wenyan/gossip`
-- `@wenyan/crdt`
-- `@wenyan/consensus`
-- `@wenyan/bridge`
-- `@wenyan/genesis`
-- `@wenyan/cli`
+Install public npmjs packages:
+
+```bash
+npm install @wenyan2/wenyan-core @wenyan2/wenyan-cli @wenyan2/wenyan-gateway
+```
+
+Published packages in v1.x (both registries, different scopes):
+
+- `@andrey-kokoev/wenyan-core`
+- `@andrey-kokoev/wenyan-actor`
+- `@andrey-kokoev/wenyan-seal`
+- `@andrey-kokoev/wenyan-archive`
+- `@andrey-kokoev/wenyan-pipeline`
+- `@andrey-kokoev/wenyan-gateway`
+- `@andrey-kokoev/wenyan-channel`
+- `@andrey-kokoev/wenyan-gossip`
+- `@andrey-kokoev/wenyan-crdt`
+- `@andrey-kokoev/wenyan-consensus`
+- `@andrey-kokoev/wenyan-bridge`
+- `@andrey-kokoev/wenyan-genesis`
+- `@andrey-kokoev/wenyan-cli`
+- `@wenyan2/wenyan-core`
+- `@wenyan2/wenyan-actor`
+- `@wenyan2/wenyan-seal`
+- `@wenyan2/wenyan-archive`
+- `@wenyan2/wenyan-pipeline`
+- `@wenyan2/wenyan-gateway`
+- `@wenyan2/wenyan-channel`
+- `@wenyan2/wenyan-gossip`
+- `@wenyan2/wenyan-crdt`
+- `@wenyan2/wenyan-consensus`
+- `@wenyan2/wenyan-bridge`
+- `@wenyan2/wenyan-genesis`
+- `@wenyan2/wenyan-cli`
 
 ## Release Runbook (GitHub Packages)
 
@@ -178,4 +210,6 @@ Published packages in v1.x:
    - `docs/deploy/production.md`
    - `docs/deploy/enterprise.md`
 5. Verify release validation commands pass locally (`pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build`, `pnpm security:audit`, `pnpm benchmark:toy:check`).
-6. Confirm packages appear in GitHub repository **Packages** section.
+6. Publish to GitHub Packages: `pnpm publish:github` (or `pnpm publish:github:dry-run`).
+7. Publish npmjs mirror scope: `pnpm publish:npmjs` (or `pnpm publish:npmjs:dry-run`).
+8. Confirm packages appear in GitHub repository **Packages** section and npmjs for `@wenyan2`.

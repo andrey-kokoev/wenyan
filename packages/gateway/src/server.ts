@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { readFileSync } from 'node:fs'
-import { parseBootstrapConfigToml } from '@wenyan/core'
+import { parseBootstrapConfigToml } from '@andrey-kokoev/wenyan-core'
 
 type Config = {
   upstream: string

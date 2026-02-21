@@ -13,7 +13,7 @@ examples/
 ├── family-treasury/           # Example 2: Byzantine fault tolerance
 └── smart-greenhouse/          # Example 3: Foreign bridge & temporal queries
 
-All examples use the published @wenyan/* packages from GitHub Packages.
+All examples use the published @andrey-kokoev/* packages from GitHub Packages.
 
 ================================================================================
 EXAMPLE 1: The Distributed Todo List (Constitutional vs. Legislative)
@@ -293,13 +293,13 @@ Each example includes:
 2. Package.json Template
 ------------------------
 {
-  "name": "@wenyan/examples-[name]",
+  "name": "@andrey-kokoev/wenyan-examples-[name]",
   "version": "0.6.0",
   "dependencies": {
-    "@wenyan/core": "^0.6.0",
-    "@wenyan/gossip": "^0.6.0",
-    "@wenyan/bridge": "^0.6.0",
-    "@wenyan/censorate": "^0.6.0",
+    "@andrey-kokoev/wenyan-core": "^0.6.0",
+    "@andrey-kokoev/wenyan-gossip": "^0.6.0",
+    "@andrey-kokoev/wenyan-bridge": "^0.6.0",
+    "@andrey-kokoev/wenyan-censorate": "^0.6.0",
     "commander": "^11.0.0",  // For CLI
     "chalk": "^5.0.0"        // For pretty output
   },

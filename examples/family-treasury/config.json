@@ -1,0 +1,25 @@
+{
+  "nodes": ["mom", "dad", "teen1", "teen2"],
+  "tiers": 2,
+  "thresholds": {
+    "pbft": 2,
+    "anomaly": 3,
+    "auditSample": 10
+  },
+  "load": {
+    "workers": 4,
+    "sensors": 0,
+    "durationSeconds": 300,
+    "seedTasks": 0,
+    "attackAttempts": 50
+  },
+  "timing": {
+    "routingLatencyMs": 800,
+    "syncSeconds": 8,
+    "convergenceMs": 5000
+  },
+  "storage": {
+    "hotDbTargetGb": 5,
+    "coldPrefix": "family-treasury"
+  }
+}

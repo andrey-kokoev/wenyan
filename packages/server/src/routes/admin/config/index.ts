@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { drizzle } from "drizzle-orm/d1"
 import type { Bindings, Variables } from "../../../types/env"
 import { requirePermission } from "../../../middleware/auth"
-import { docxConversionConfigUpdateSchema } from "@wenyan/shared"
+import { docxConversionConfigUpdateSchema } from "@andrey-kokoev/wenyan-shared"
 import {
   getAiProviderConfig,
   getDocUploadConfig,

@@ -1,7 +1,7 @@
 import { z } from "zod"
 import JSON5 from "json5"
 import { jsonrepair } from "jsonrepair"
-import { issueFindingResponseSchema } from "@wenyan/shared"
+import { issueFindingResponseSchema } from "@andrey-kokoev/wenyan-shared"
 
 export function buildPrompt(input: {
   rules: Array<{ id: number; name: string; description?: string | null }>

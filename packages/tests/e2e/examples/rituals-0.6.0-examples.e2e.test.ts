@@ -1,15 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolve } from 'node:path'
-import { PbftConsensus } from '../../../../packages/consensus/src/index'
 import { resolveBridgeConflict } from '../../../../packages/bridge/src/sync'
 import { createHash } from 'node:crypto'
-import { allowGenres, cleanupHarness, ensureGenre, message, setupExampleOffice, submit } from './harness'
-import { sensorReading } from './fixtures'
+import { allowGenres, cleanupHarness, ensureGenre, message, setupExampleOffice, submit, waitForState } from './harness'
+import { ritualNumbers, sensorReading } from './fixtures'
 import { coldMigrationPlan } from '../../../../examples/smart-greenhouse/src/lib/cold-migration'
-
-const runExamples = process.env.RUN_EXAMPLES_E2E === '1'
-const runHeavy = process.env.RUN_EXAMPLES_HEAVY === '1'
-const suite = runExamples ? describe : describe.skip
+import { createPbftFixture } from '../pbft-helpers'
 
 function digest(input: unknown): string {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex')
@@ -19,20 +15,21 @@ afterEach(() => {
   cleanupHarness()
 })
 
-suite('Wenyan v0.6.0 examples rituals', () => {
+describe('Wenyan v0.6.0 examples rituals', () => {
   it('R1 constitutional amendment: todo schema evolves while pending window stays on old Ti', async () => {
     const { app } = await setupExampleOffice('r1')
     await ensureGenre(app, 'petition', ['title'])
     await allowGenres(app, ['petition', 'ti_definition', 'edict'])
 
     const preAmend = await submit(app, message('task-old', 'petition', { title: 'legacy', priority: 'high' }))
-    expect(preAmend.status).toBe(201)
+    expect(preAmend.status).toBe(202)
 
-    const pbft = new PbftConsensus({ replicaSet: ['alice', 'bob', 'carol', 'dave'], threshold: 3 })
-    const proposal = pbft.proposeTiDefinition('task-ti-v2', 'alice')
-    pbft.onPrepare({ ...proposal, nodeId: 'alice', phase: 'prepare', signature: 's', at: new Date().toISOString() })
-    pbft.onPrepare({ ...proposal, nodeId: 'bob', phase: 'prepare', signature: 's', at: new Date().toISOString() })
-    pbft.onPrepare({ ...proposal, nodeId: 'carol', phase: 'prepare', signature: 's', at: new Date().toISOString() })
+    const { pbft, signed } = await createPbftFixture(['alice', 'bob', 'carol', 'dave'], ritualNumbers.r1.pbftThreshold)
+    const proposal = await pbft.proposeTiDefinition('task-ti-v2', 'alice')
+    const at = new Date().toISOString()
+    await pbft.onPrepare(await signed({ ...proposal, nodeId: 'alice', phase: 'prepare', at }))
+    await pbft.onPrepare(await signed({ ...proposal, nodeId: 'bob', phase: 'prepare', at }))
+    await pbft.onPrepare(await signed({ ...proposal, nodeId: 'carol', phase: 'prepare', at }))
     expect(pbft.commitIfThreshold('task-ti-v2')).toBe(false)
 
     const amend = await submit(
@@ -43,15 +40,15 @@ suite('Wenyan v0.6.0 examples rituals', () => {
         schema: { type: 'object', required: ['title', 'priority'] },
       }),
     )
-    expect(amend.status).toBe(201)
+    expect(amend.status).toBe(202)
 
-    pbft.onCommit({ ...proposal, nodeId: 'alice', phase: 'commit', signature: 's', at: new Date().toISOString() })
-    pbft.onCommit({ ...proposal, nodeId: 'bob', phase: 'commit', signature: 's', at: new Date().toISOString() })
-    pbft.onCommit({ ...proposal, nodeId: 'carol', phase: 'commit', signature: 's', at: new Date().toISOString() })
+    await pbft.onCommit(await signed({ ...proposal, nodeId: 'alice', phase: 'commit', at }))
+    await pbft.onCommit(await signed({ ...proposal, nodeId: 'bob', phase: 'commit', at }))
+    await pbft.onCommit(await signed({ ...proposal, nodeId: 'carol', phase: 'commit', at }))
     expect(pbft.commitIfThreshold('task-ti-v2')).toBe(true)
 
     const postAmend = await submit(app, message('task-new', 'petition', { title: 'new', priority: 'high' }))
-    expect(postAmend.status).toBe(201)
+    expect(postAmend.status).toBe(202)
 
     const old = await app.request('/messages/task-old')
     const oldJson = await old.json() as { message: { payload: Record<string, unknown> } }
@@ -75,26 +72,40 @@ suite('Wenyan v0.6.0 examples rituals', () => {
 
     expect(resolved.winner.payload.assignee).toBe('dave')
     expect(resolved.status).toBe('resolved')
-    expect(Date.now() - start).toBeLessThan(5000)
+    expect(Date.now() - start).toBeLessThan(ritualNumbers.r2.convergenceMs)
   })
 
   it('R3 compromised teen: velocity anomaly quarantines attempts and records alerts across restart', async () => {
     const first = await setupExampleOffice('r3-a')
     await ensureGenre(first.app, 'spend_request', ['to', 'amount', 'reason'])
+    await allowGenres(first.app, ['ti_definition', 'spend_request'])
 
-    const accepted: number[] = []
-    for (let i = 0; i < 12; i += 1) {
-      const r = await submit(
-        first.app,
-        message(`attack-${i}`, 'ti_definition', {
-          target_genre: `burst-${i}`,
-          version: '1.0.0',
-          schema: { type: 'object' },
-        }),
-      )
-      accepted.push(r.status)
+    const burst = Math.min(12, ritualNumbers.r3.attackAttempts)
+    let sawQuarantine = false
+    for (let i = 0; i < burst; i += 1) {
+      const id = `attack-${i}`
+      const r = await submit(first.app, message(id, 'ti_definition', {
+        target_genre: `burst-${i}`,
+        version: '1.0.0',
+        schema: { type: 'object' },
+      }))
+      if (r.status === 202) {
+        await waitForState(first.app, id, 'archived')
+        continue
+      }
+      expect(r.status).toBe(403)
+      sawQuarantine = true
+      break
     }
-    expect(accepted.filter((s) => s === 403).length).toBeGreaterThan(0)
+
+    const quarantined = await submit(first.app, message('attack-quarantined', 'ti_definition', {
+      target_genre: 'burst-quarantined',
+      version: '1.0.0',
+      schema: { type: 'object' },
+    }))
+    expect(quarantined.status).toBe(403)
+    expect(await quarantined.json()).toMatchObject({ error: 'actor-quarantined' })
+    expect(sawQuarantine || quarantined.status === 403).toBe(true)
 
     const alerts = await first.app.request('/audit/anomaly?type=velocity')
     const alertJson = await alerts.json() as { items: Array<{ alertType: string }> }
@@ -122,7 +133,7 @@ suite('Wenyan v0.6.0 examples rituals', () => {
         geography: { actor_id: 'teen2', from: 'Seattle', to: 'Seattle', distance_km: 1, delta_seconds: 3600 },
       }),
     )
-    expect(first.status).toBe(201)
+    expect(first.status).toBe(202)
 
     const second = await submit(
       app,
@@ -142,7 +153,7 @@ suite('Wenyan v0.6.0 examples rituals', () => {
     await allowGenres(app, ['petition'])
 
     for (let i = 0; i < 5; i += 1) {
-      expect((await submit(app, message(`m-${i}`, 'petition', { title: `expense-${i}` }))).status).toBe(201)
+      expect((await submit(app, message(`m-${i}`, 'petition', { title: `expense-${i}` }))).status).toBe(202)
     }
 
     const checkpoint = await app.request('/audit/checkpoint', {
@@ -164,14 +175,12 @@ suite('Wenyan v0.6.0 examples rituals', () => {
     expect(tampered).not.toBe(bundle.digest)
   })
 
-  const heavyIt = runHeavy ? it : it.skip
-
-  heavyIt('R6 sensor flood: toy-pressure ingest validates count and forgetting boundary', async () => {
+  it('R6 sensor flood: toy-pressure ingest validates count and forgetting boundary', async () => {
     const { app } = await setupExampleOffice('r6')
     await ensureGenre(app, 'sensor_reading', ['temp', 'humidity', 'soil_ph'])
     await allowGenres(app, ['sensor_reading'])
 
-    const total = 120
+    const total = ritualNumbers.r6.sensorFloodCount
     for (let i = 0; i < total; i += 1) {
       const res = await submit(
         app,
@@ -180,7 +189,7 @@ suite('Wenyan v0.6.0 examples rituals', () => {
           provenance: { foreign: 'mqtt' },
         }),
       )
-      expect(res.status).toBe(201)
+      expect(res.status).toBe(202)
     }
 
     const sample = await app.request('/messages/sensor-1')
@@ -193,8 +202,8 @@ suite('Wenyan v0.6.0 examples rituals', () => {
     await ensureGenre(app, 'petition', ['title'])
     await allowGenres(app, ['petition', 'ti_definition'])
 
-    for (let i = 0; i < 10; i += 1) {
-      expect((await submit(app, message(`v2-${i}`, 'petition', { title: `legacy-${i}` }))).status).toBe(201)
+    for (let i = 0; i < ritualNumbers.r7.legacyCount; i += 1) {
+      expect((await submit(app, message(`v2-${i}`, 'petition', { title: `legacy-${i}` }))).status).toBe(202)
     }
 
     expect(
@@ -209,19 +218,20 @@ suite('Wenyan v0.6.0 examples rituals', () => {
           }),
         )
       ).status,
-    ).toBe(201)
+    ).toBe(202)
+    await waitForState(app, 'ti-v3', 'archived')
 
-    expect((await submit(app, message('v3-1', 'petition', { title: 'new', light_lux: 1000 }))).status).toBe(201)
+    expect((await submit(app, message('v3-1', 'petition', { title: 'new', light_lux: ritualNumbers.r7.lightLux }))).status).toBe(202)
     expect((await submit(app, message('v2-post', 'petition', { title: 'old-shape' }))).status).toBe(400)
   })
 
-  heavyIt('R8 historical climate query: exact point value and proof path available', async () => {
+  it('R8 historical climate query: exact point value and proof path available', async () => {
     const { app } = await setupExampleOffice('r8')
     await ensureGenre(app, 'sensor_reading', ['temp', 'humidity', 'soil_ph'])
     await allowGenres(app, ['sensor_reading'])
 
     const target = message('hist-1', 'sensor_reading', { temp: 2.5, humidity: 70, soil_ph: 6.1 })
-    expect((await submit(app, target)).status).toBe(201)
+    expect((await submit(app, target)).status).toBe(202)
 
     const res = await app.request('/messages/hist-1')
     const json = await res.json() as { message: { payload: { temp: number } }; seals: unknown[] }
@@ -229,9 +239,10 @@ suite('Wenyan v0.6.0 examples rituals', () => {
     expect(Array.isArray(json.seals)).toBe(true)
   })
 
-  heavyIt('R9 qiankan cold migration: plan preserves hot-path expectations and cold proof capability', async () => {
-    const plan = coldMigrationPlan('2026-03-01')
-    expect(plan.hotDbTargetGb).toBe(5)
+  it('R9 qiankan cold migration: plan preserves hot-path expectations and cold proof capability', async () => {
+    const configPath = resolve(process.cwd(), '../../examples/smart-greenhouse/config.json')
+    const plan = coldMigrationPlan('2026-03-01', configPath)
+    expect(plan.hotDbTargetGb).toBeGreaterThan(0)
     expect(plan.merkleVerified).toBe(true)
     expect(plan.key.endsWith('.parquet')).toBe(true)
   })

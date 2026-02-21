@@ -8,19 +8,19 @@ type PkgSpec = {
 }
 
 const packages: PkgSpec[] = [
-  { name: '@wenyan/core', dir: 'packages/core' },
-  { name: '@wenyan/actor', dir: 'packages/actor' },
-  { name: '@wenyan/seal', dir: 'packages/seal' },
-  { name: '@wenyan/archive', dir: 'packages/archive' },
-  { name: '@wenyan/pipeline', dir: 'packages/pipeline' },
-  { name: '@wenyan/gateway', dir: 'packages/gateway' },
-  { name: '@wenyan/channel', dir: 'packages/channel' },
-  { name: '@wenyan/gossip', dir: 'packages/gossip' },
-  { name: '@wenyan/crdt', dir: 'packages/crdt' },
-  { name: '@wenyan/consensus', dir: 'packages/consensus' },
-  { name: '@wenyan/bridge', dir: 'packages/bridge' },
-  { name: '@wenyan/genesis', dir: 'packages/genesis' },
-  { name: '@wenyan/cli', dir: 'packages/cli' },
+  { name: '@andrey-kokoev/wenyan-core', dir: 'packages/core' },
+  { name: '@andrey-kokoev/wenyan-actor', dir: 'packages/actor' },
+  { name: '@andrey-kokoev/wenyan-seal', dir: 'packages/seal' },
+  { name: '@andrey-kokoev/wenyan-archive', dir: 'packages/archive' },
+  { name: '@andrey-kokoev/wenyan-pipeline', dir: 'packages/pipeline' },
+  { name: '@andrey-kokoev/wenyan-gateway', dir: 'packages/gateway' },
+  { name: '@andrey-kokoev/wenyan-channel', dir: 'packages/channel' },
+  { name: '@andrey-kokoev/wenyan-gossip', dir: 'packages/gossip' },
+  { name: '@andrey-kokoev/wenyan-crdt', dir: 'packages/crdt' },
+  { name: '@andrey-kokoev/wenyan-consensus', dir: 'packages/consensus' },
+  { name: '@andrey-kokoev/wenyan-bridge', dir: 'packages/bridge' },
+  { name: '@andrey-kokoev/wenyan-genesis', dir: 'packages/genesis' },
+  { name: '@andrey-kokoev/wenyan-cli', dir: 'packages/cli' },
 ]
 
 function readJson(path: string): Record<string, unknown> {

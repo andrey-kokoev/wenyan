@@ -1,4 +1,4 @@
-import type { AnomalyAlert } from '@wenyan/core'
+import type { AnomalyAlert } from '@andrey-kokoev/wenyan-core'
 type AnomalySeverity = 'info' | 'warning' | 'critical'
 
 export interface VelocitySample {

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MqttBridgeAdapter } from './adapters/mqtt'
 
-const runIntegration = process.env.RUN_MQTT_INTEGRATION === '1'
-const suite = runIntegration ? describe : describe.skip
-
-suite('mqtt adapter integration', () => {
+describe('mqtt adapter integration', () => {
   it('accepts simulated inbound payload and reports healthy lifecycle', async () => {
     const adapter = new MqttBridgeAdapter({
       id: 'mqtt-it',
@@ -55,7 +52,7 @@ suite('mqtt adapter integration', () => {
     })
 
     expect(outbound.foreignId).toContain('sensor_reading')
-    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.length).toBe(1)
 
     await adapter.stop()
     expect((await adapter.health()).ok).toBe(false)

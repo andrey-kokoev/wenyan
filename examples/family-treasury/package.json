@@ -3,12 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "treasury:init-keys": "tsx scripts/init-keys.ts",
     "treasury:propose": "tsx src/treasury.ts propose",
-    "treasury:attack": "tsx src/treasury.ts attack-simulate",
-    "treasury:audit": "tsx src/treasury.ts audit-export"
+    "treasury:attack": "tsx src/treasury.ts attack-simulate --config=./config.json",
+    "treasury:audit": "tsx src/treasury.ts audit-export --config=./config.json"
   },
   "dependencies": {
-    "@wenyan/core": "workspace:*"
+    "@andrey-kokoev/wenyan-core": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.5"

@@ -13,4 +13,4 @@ export {
   validateSettingsUpdate,
   createUserSettings,
   getKvPathForUserSettings,
-} from "@wenyan/shared"
+} from "@andrey-kokoev/wenyan-shared"

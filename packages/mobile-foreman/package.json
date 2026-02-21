@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/mobile-foreman",
+  "name": "@andrey-kokoev/wenyan-mobile-foreman",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,8 +30,8 @@
     "lint": "echo 'no lint configured yet'"
   },
   "dependencies": {
-    "@wenyan/archive": "workspace:*",
-    "@wenyan/core": "workspace:*"
+    "@andrey-kokoev/wenyan-archive": "workspace:*",
+    "@andrey-kokoev/wenyan-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",

@@ -1,5 +1,5 @@
-import { compareVectorClock, mergeEdict } from '@wenyan/crdt'
-import type { MessageEnvelope, VectorClock } from '@wenyan/core'
+import { compareVectorClock, mergeEdict } from '@andrey-kokoev/wenyan-crdt'
+import type { MessageEnvelope, VectorClock } from '@andrey-kokoev/wenyan-core'
 
 export type BridgeConflictStrategy = 'lww' | 'merge' | 'schism'
 

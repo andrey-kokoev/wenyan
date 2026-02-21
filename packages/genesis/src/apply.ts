@@ -1,10 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import type { ArchiveRepository } from '@wenyan/archive'
-import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
-import { parseBootstrapConfigToml, type BootstrapConfig, type EdictLawType, type MessageEnvelope, type Transition } from '@wenyan/core'
-import { DEV_SEAL_CONTEXT, InsufficientImperialAuthorityError, createSealChain, verifySealChain, type SealContext } from '@wenyan/seal'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
+import { SqliteArchiveRepository } from '@andrey-kokoev/wenyan-archive/sqlite'
+import { parseBootstrapConfigToml, type BootstrapConfig, type EdictLawType, type MessageEnvelope, type Transition } from '@andrey-kokoev/wenyan-core'
+import { DEV_SEAL_CONTEXT, InsufficientImperialAuthorityError, createSealChain, verifySealChain, type SealContext } from '@andrey-kokoev/wenyan-seal'
 
 function keyHexFromBase64(base64: string): string {
   const raw = Buffer.from(base64, 'base64')
@@ -56,6 +56,13 @@ upstream = "${upstream}"
 host = "${config.gateway.listen.host}"
 port = ${config.gateway.listen.port}
 
+[auth]
+jwt_issuer = "${config.auth.jwt_issuer}"
+jwt_audience = "${config.auth.jwt_audience}"
+jwt_alg = "${config.auth.jwt_alg}"
+jwt_secret = "${config.auth.jwt_secret ?? ''}"
+allow_header_actor = ${config.auth.allow_header_actor ? 'true' : 'false'}
+
 [law]
 mode = "${mode}"
 
@@ -85,6 +92,14 @@ function defaultConfig(): BootstrapConfig {
         host: '127.0.0.1',
         port: 8787,
       },
+      stream_mode: 'sse',
+    },
+    auth: {
+      jwt_issuer: 'wenyan.local',
+      jwt_audience: 'wenyan-gateway',
+      jwt_alg: 'HS256',
+      jwt_secret: 'wenyan-local-jwt-secret',
+      allow_header_actor: false,
     },
     law: {
       mode: 'strict',
@@ -106,6 +121,7 @@ function defaultConfig(): BootstrapConfig {
       replica_set: [],
       constitutional_threshold: 3,
       view_change_timeout_ms: 5000,
+      allow_single_replica: false,
     },
     sync: {
       batch_size: 200,
@@ -236,10 +252,17 @@ export async function applyGenesis(
     admission: { allowed_genres: ['*'] },
     protocol: { required_acks_by_genre: {} },
     regulation: { retention_days: 3650, rate_limits: {} },
+    access_control: {
+      read_permissions: {
+        genesis_admin: ['*'],
+      },
+      anonymous_read: true,
+      query_hash_only: true,
+    },
   }
 
   const nowIso = new Date().toISOString()
-  const seededLawTypes: EdictLawType[] = ['appointment', 'classification', 'routing', 'admission', 'protocol', 'regulation']
+  const seededLawTypes: EdictLawType[] = ['appointment', 'classification', 'routing', 'admission', 'protocol', 'regulation', 'access_control']
   for (const lawType of seededLawTypes) {
     const existing = await repo.getCurrentLaw(lawType, nowIso)
     if (existing) {

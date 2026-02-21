@@ -1,4 +1,4 @@
-import type { AppointmentLawContent } from '@wenyan/core'
+import type { AppointmentLawContent } from '@andrey-kokoev/wenyan-core'
 
 export type ActorRole = string
 

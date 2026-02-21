@@ -1,4 +1,4 @@
-export function seedTasks(count = 50): Array<Record<string, unknown>> {
+export function seedTasks(count: number): Array<Record<string, unknown>> {
   return Array.from({ length: count }, (_, i) => ({
     id: `task-${i + 1}`,
     title: `Task ${i + 1}`,

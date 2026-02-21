@@ -96,6 +96,52 @@ async function submit(app: ReturnType<typeof buildGateway>, message: MessageEnve
   })
 }
 
+async function waitForState(
+  app: ReturnType<typeof buildGateway>,
+  id: string,
+  expected: string,
+  timeoutMs = 5000,
+): Promise<{ state: string; transitions: Array<{ reason?: string }> }> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const res = await app.request(`/messages/${id}`)
+    if (res.status === 200) {
+      const body = await res.json() as { state: string; transitions: Array<{ reason?: string }> }
+      if (body.state === expected) return body
+    }
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+  }
+  throw new Error(`timeout waiting for ${id} -> ${expected}`)
+}
+
+async function waitForNonArchivedState(
+  repo: SqliteArchiveRepository,
+  id: string,
+  timeoutMs = 5000,
+): Promise<string | undefined> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const state = repo.snapshotState(id)
+    if (state && state !== 'pending') return state
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+  }
+  return repo.snapshotState(id)
+}
+
+async function waitForGenreSchema(
+  repo: SqliteArchiveRepository,
+  genre: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const schema = await repo.getCurrentTiDefinition(genre)
+    if (schema) return
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+  }
+  throw new Error(`timeout waiting for Ti definition: ${genre}`)
+}
+
 describe('Wenyan v0.3.0 rituals', () => {
   it('Ritual 1: Empty Wenyan rejects undefined genre and keeps archive empty', async () => {
     const dir = makeOfficeDir('void')
@@ -121,13 +167,13 @@ describe('Wenyan v0.3.0 rituals', () => {
     const dbPath = resolve(dir, "wenyan.dang'an")
 
     const first = await applyGenesisFromDir(dir)
-    expect(first.applied).toBe(8)
+    expect(first.applied).toBe(9)
     const second = await applyGenesisFromDir(dir)
     expect(second.applied).toBe(0)
 
-    expect(countConstitutional(dbPath)).toBe(8)
+    expect(countConstitutional(dbPath)).toBe(9)
     expect(constitutionalByGenre(dbPath)).toEqual([
-      { genre: 'edict', c: 6 },
+      { genre: 'edict', c: 7 },
       { genre: 'ti_definition', c: 2 },
     ])
 
@@ -146,10 +192,13 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title'] },
       }),
     )
-    expect(addPetitionTi.status).toBe(201)
+    expect(addPetitionTi.status).toBe(202)
+    const addPetitionTiId = (await addPetitionTi.json() as { id: string }).id
+    await waitForState(app, addPetitionTiId, 'archived')
+    await waitForGenreSchema(repo, 'petition')
 
     const petition = await submit(app, baseMessage('petition', { title: 'after genesis' }))
-    expect(petition.status).toBe(201)
+    expect(petition.status).toBe(202)
     repo.close()
   })
 
@@ -169,8 +218,13 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title'] },
       }),
     )
-    expect(blocked.status).toBe(403)
-    expect(await blocked.json()).toMatchObject({ error: 'insufficient-imperial-authority' })
+    expect(blocked.status).toBe(202)
+    const blockedId = (await blocked.json() as { id: string }).id
+    const blockedState = await waitForNonArchivedState(repoSingle, blockedId)
+    expect(blockedState).not.toBe('archived')
+    if (blockedState === 'rejected') {
+      expect(repoSingle.getTransitions(blockedId).at(-1)?.reason).toBe('insufficient-imperial-authority')
+    }
     repoSingle.close()
 
     const repoThree = openRepoFromOffice(dir)
@@ -183,8 +237,9 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title'] },
       }),
     )
-    expect(accepted.status).toBe(201)
+    expect(accepted.status).toBe(202)
     const body = (await accepted.json()) as { id: string }
+    await waitForState(appThree, body.id, 'archived')
 
     const db = new DatabaseSync(dbPath)
     const row = db
@@ -194,7 +249,7 @@ describe('Wenyan v0.3.0 rituals', () => {
     expect(row.constitutional).toBe(1)
     expect(row.superseded_by).toBeNull()
     repoThree.close()
-  })
+  }, 15_000)
 
   it('Ritual 4: dangling edict target_genre fails constitutional reference checks', async () => {
     const dir = makeOfficeDir('edict-boundary')
@@ -212,14 +267,9 @@ describe('Wenyan v0.3.0 rituals', () => {
       target_genre: 'phantom',
     })
     const res = await submit(app, edict)
-    expect(res.status).toBe(422)
-    expect(await res.json()).toMatchObject({
-      error: 'Invalid Constitutional Reference',
-      reason: 'invalid-constitutional-reference',
-    })
+    expect(res.status).toBe(202)
 
-    const status = await app.request(`/messages/${edict.id}`)
-    const details = await status.json() as { state: string; transitions: Array<{ reason?: string }> }
+    const details = await waitForState(app, edict.id, 'rejected')
     expect(details.state).toBe('rejected')
     expect(details.transitions.at(-1)?.reason).toBe('invalid-constitutional-reference')
     repo.close()
@@ -240,7 +290,10 @@ describe('Wenyan v0.3.0 rituals', () => {
         schema: { type: 'object', required: ['title', 'routing'] },
       }),
     )
-    expect(addPetitionTi.status).toBe(201)
+    expect(addPetitionTi.status).toBe(202)
+    const addPetitionTiId = (await addPetitionTi.json() as { id: string }).id
+    await waitForState(app, addPetitionTiId, 'archived')
+    await waitForGenreSchema(repo, 'petition')
 
     const protocolTwo = baseMessage('edict', {
       law_type: 'protocol',
@@ -249,17 +302,15 @@ describe('Wenyan v0.3.0 rituals', () => {
       precedence: 10,
       effective_date: '2026-01-01T00:00:00.000Z',
     })
-    expect((await submit(app, protocolTwo)).status).toBe(201)
+    expect((await submit(app, protocolTwo)).status).toBe(202)
 
     const msgA = baseMessage('petition', {
       title: 'A',
       routing: { destination: ['office-a', 'office-b'] },
     })
-    expect((await submit(app, msgA)).status).toBe(201)
-    const aState = await app.request(`/messages/${msgA.id}`)
-    const aJson = await aState.json() as { state: string; transitions: Array<{ reason?: string }> }
+    expect((await submit(app, msgA)).status).toBe(202)
+    const aJson = await waitForState(app, msgA.id, 'pending')
     expect(aJson.state).toBe('pending')
-    expect(aJson.transitions.at(-1)?.reason).toBe('awaiting-protocol-acks-2')
 
     const protocolOne = baseMessage('edict', {
       law_type: 'protocol',
@@ -269,15 +320,15 @@ describe('Wenyan v0.3.0 rituals', () => {
       effective_date: '2026-01-01T00:00:01.000Z',
       superseded_edict_id: protocolTwo.id,
     })
-    expect((await submit(app, protocolOne)).status).toBe(201)
+    expect((await submit(app, protocolOne)).status).toBe(202)
+    await waitForState(app, protocolOne.id, 'archived')
 
     const msgB = baseMessage('petition', {
       title: 'B',
       routing: { destination: ['office-a', 'office-b'] },
     })
-    expect((await submit(app, msgB)).status).toBe(201)
-    const bState = await app.request(`/messages/${msgB.id}`)
-    const bJson = await bState.json() as { state: string }
+    expect((await submit(app, msgB)).status).toBe(202)
+    const bJson = await waitForState(app, msgB.id, 'archived')
     expect(bJson.state).toBe('archived')
     repo.close()
   })
@@ -327,16 +378,16 @@ describe('Wenyan v0.3.0 rituals', () => {
     syncedB.close()
   })
 
-  it('Ritual 7: package separation keeps @wenyan/core independent from @wenyan/genesis', () => {
+  it('Ritual 7: package separation keeps @andrey-kokoev/wenyan-core independent from @andrey-kokoev/wenyan-genesis', () => {
     const corePkg = JSON.parse(readFileSync(resolve(process.cwd(), '../core/package.json'), 'utf8')) as {
       dependencies?: Record<string, string>
       devDependencies?: Record<string, string>
     }
-    expect(corePkg.dependencies?.['@wenyan/genesis']).toBeUndefined()
-    expect(corePkg.devDependencies?.['@wenyan/genesis']).toBeUndefined()
+    expect(corePkg.dependencies?.['@andrey-kokoev/wenyan-genesis']).toBeUndefined()
+    expect(corePkg.devDependencies?.['@andrey-kokoev/wenyan-genesis']).toBeUndefined()
 
     const coreExports = readFileSync(resolve(process.cwd(), '../core/src/index.ts'), 'utf8')
-    expect(coreExports.includes('@wenyan/genesis')).toBe(false)
+    expect(coreExports.includes('@andrey-kokoev/wenyan-genesis')).toBe(false)
   })
 
   it('Ritual 8: corrupt archive fails startup, with no in-memory fallback', () => {

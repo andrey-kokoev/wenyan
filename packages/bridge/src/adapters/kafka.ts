@@ -1,4 +1,4 @@
-import type { BridgeAdapterConfig, KafkaBridgeAdapterConfig, MessageEnvelope } from '@wenyan/core'
+import type { BridgeAdapterConfig, KafkaBridgeAdapterConfig, MessageEnvelope } from '@andrey-kokoev/wenyan-core'
 import type { AdapterContext, BridgeAdapter, ForeignMetadata, FromWenyan, IntoWenyan, TranslationResult } from '../types'
 
 interface KafkaPayload {

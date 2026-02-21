@@ -1,4 +1,4 @@
-import type { ArchiveRepository } from '@wenyan/archive'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
 
 export type ImperialRole =
   | 'emperor'

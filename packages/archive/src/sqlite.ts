@@ -9,8 +9,8 @@ import {
   type MessageState,
   type ResolvedLaw,
   type Transition,
-} from '@wenyan/core'
-import type { SealRecord } from '@wenyan/seal'
+} from '@andrey-kokoev/wenyan-core'
+import type { SealRecord } from '@andrey-kokoev/wenyan-seal'
 import type {
   ArchiveRepository,
   BridgeDeadLetterRecord,
@@ -26,7 +26,7 @@ import type {
   TiDefinitionRecord,
   SiteStatus,
 } from './index'
-import { merkleRootForLeaves } from './merkle-dag'
+import { buildMerkleProofFromLeaves, merkleRootForLeaves } from './merkle-dag'
 
 interface ArchiveOptions {
   retentionDays?: number
@@ -818,13 +818,41 @@ export class SqliteArchiveRepository implements ArchiveRepository {
   }
 
   getMerkleRoot(scope: 'all' | 'constitutional' | 'legislative' = 'all'): string {
+    const { leaves } = this.collectMerkleLeaves(scope)
+    const root = merkleRootForLeaves(leaves)
+    this.db
+      .prepare(
+        `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
+         ON CONFLICT(scope) DO UPDATE SET merkle_root = excluded.merkle_root, updated_at = excluded.updated_at`,
+      )
+      .run(scope, root, new Date().toISOString())
+    return root
+  }
+
+  getMerkleProof(messageId: string): MerkleProof | undefined {
+    const { leaves, messageLeafRows } = this.collectMerkleLeaves('all')
+    const idx = messageLeafRows.findIndex((r) => r.id === messageId)
+    if (idx < 0) return undefined
+    const proof = buildMerkleProofFromLeaves(leaves, idx)
+    return {
+      messageId,
+      leafHash: proof.leafHash,
+      rootHash: proof.rootHash,
+      path: proof.path,
+    }
+  }
+
+  private collectMerkleLeaves(scope: 'all' | 'constitutional' | 'legislative'): {
+    leaves: string[]
+    messageLeafRows: Array<{ id: string; h: string }>
+  } {
     let where = 'archived_at IS NOT NULL'
     if (scope === 'constitutional') where += ' AND constitutional = 1'
     if (scope === 'legislative') where += " AND genre = 'edict'"
-    const rows = this.db
-      .prepare(`SELECT COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
-      .all() as Array<{ h: string }>
-    const leaves = rows.map((r) => r.h)
+    const messageLeafRows = this.db
+      .prepare(`SELECT id, COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
+      .all() as Array<{ id: string; h: string }>
+    const leaves = messageLeafRows.map((r) => r.h)
     if (scope === 'all') {
       const reads = this.db
         .prepare('SELECT id, query_timestamp, result_hash FROM seal_0_log ORDER BY query_timestamp ASC, id ASC')
@@ -839,27 +867,7 @@ export class SqliteArchiveRepository implements ArchiveRepository {
       for (const a of alerts) leaves.push(sha256(`${a.created_at}:${a.id}`))
       for (const c of checkpoints) leaves.push(sha256(`${c.created_at}:${c.id}`))
     }
-    const root = merkleRootForLeaves(leaves)
-    this.db
-      .prepare(
-        `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
-         ON CONFLICT(scope) DO UPDATE SET merkle_root = excluded.merkle_root, updated_at = excluded.updated_at`,
-      )
-      .run(scope, root, new Date().toISOString())
-    return root
-  }
-
-  getMerkleProof(messageId: string): MerkleProof | undefined {
-    const row = this.db
-      .prepare('SELECT COALESCE(content_hash, id) AS h FROM messages WHERE id = ?')
-      .get(messageId) as { h?: string } | undefined
-    if (!row?.h) return undefined
-    return {
-      messageId,
-      leafHash: row.h,
-      rootHash: this.getMerkleRoot('all'),
-      path: [],
-    }
+    return { leaves, messageLeafRows }
   }
 
   getSyncRange(fromCursor: string, limit: number): Transition[] {

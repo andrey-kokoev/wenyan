@@ -1,4 +1,4 @@
-import { parseBootstrapConfig } from '@wenyan/core'
+import { parseBootstrapConfig } from '@andrey-kokoev/wenyan-core'
 import { BridgeGateway } from '../src/gateway'
 
 async function main(): Promise<void> {

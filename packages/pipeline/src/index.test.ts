@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { existsSync, unlinkSync } from 'node:fs'
-import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
+import { SqliteArchiveRepository } from '@andrey-kokoev/wenyan-archive/sqlite'
 import { processDocketMessage } from './index'
-import type { EdictLawType } from '@wenyan/core'
-import { DEV_SEAL_CONTEXT } from '@wenyan/seal'
+import type { EdictLawType } from '@andrey-kokoev/wenyan-core'
+import { DEV_SEAL_CONTEXT } from '@andrey-kokoev/wenyan-seal'
 
 const tempFiles = new Set<string>()
 

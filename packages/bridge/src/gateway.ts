@@ -1,6 +1,6 @@
-import type { ArchiveRepository } from '@wenyan/archive'
-import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
-import type { BootstrapConfig, BridgeAdapterConfig, BridgeProtocol, MessageEnvelope } from '@wenyan/core'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
+import { SqliteArchiveRepository } from '@andrey-kokoev/wenyan-archive/sqlite'
+import type { BootstrapConfig, BridgeAdapterConfig, BridgeProtocol, MessageEnvelope } from '@andrey-kokoev/wenyan-core'
 import { KafkaBridgeAdapter } from './adapters/kafka'
 import { MqttBridgeAdapter } from './adapters/mqtt'
 import { NatsBridgeAdapter } from './adapters/nats'
@@ -329,7 +329,7 @@ export class BridgeGateway {
 
   private async captureOutboundEvents(): Promise<void> {
     try {
-      const res = await fetch(`${this.apiBaseUrl}/stream?since=${encodeURIComponent(this.lastStreamAt)}`)
+      const res = await fetch(`${this.apiBaseUrl}/stream/replay?since=${encodeURIComponent(this.lastStreamAt)}`)
       if (!res.ok) return
       const body = (await res.json()) as { events?: Array<{ at: string; type: string; messageId: string }> }
       const events = body.events ?? []

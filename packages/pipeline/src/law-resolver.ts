@@ -1,5 +1,5 @@
-import type { ArchiveRepository } from '@wenyan/archive'
-import { EdictLawTypeValues, type EdictLawType, type LawMode, type ResolvedLaw } from '@wenyan/core'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
+import { EdictLawTypeValues, type EdictLawType, type LawMode, type ResolvedLaw } from '@andrey-kokoev/wenyan-core'
 
 export type LawResolverEventType =
   | 'law.loaded'

@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/seal",
+  "name": "@andrey-kokoev/wenyan-seal",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,8 +32,8 @@
   "dependencies": {
     "@noble/ed25519": "^2.1.0",
     "@noble/hashes": "^1.8.0",
-    "@wenyan/actor": "workspace:*",
-    "@wenyan/core": "workspace:*"
+    "@andrey-kokoev/wenyan-actor": "workspace:*",
+    "@andrey-kokoev/wenyan-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

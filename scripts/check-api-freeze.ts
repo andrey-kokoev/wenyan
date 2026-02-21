@@ -4,9 +4,9 @@ import { join } from 'node:path'
 type Snapshot = Record<string, unknown>
 
 const targets = [
-  { name: '@wenyan/core', file: 'packages/core/package.json' },
-  { name: '@wenyan/gossip', file: 'packages/gossip/package.json' },
-  { name: '@wenyan/bridge', file: 'packages/bridge/package.json' },
+  { name: '@andrey-kokoev/wenyan-core', file: 'packages/core/package.json' },
+  { name: '@andrey-kokoev/wenyan-gossip', file: 'packages/gossip/package.json' },
+  { name: '@andrey-kokoev/wenyan-bridge', file: 'packages/bridge/package.json' },
 ]
 
 const outDir = '.api-freeze'

@@ -1,4 +1,4 @@
-import type { BridgeAdapterConfig, MessageEnvelope } from '@wenyan/core'
+import type { BridgeAdapterConfig, MessageEnvelope } from '@andrey-kokoev/wenyan-core'
 import type { AdapterContext, BridgeAdapter, ForeignMetadata, FromWenyan, IntoWenyan, TranslationResult } from '../types'
 
 interface RegulatoryPayload {

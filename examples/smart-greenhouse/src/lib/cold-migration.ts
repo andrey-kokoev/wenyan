@@ -1,14 +1,17 @@
 import { buildColdObjectKey } from './s3-store'
+import { loadExampleConfig, requiredArg } from '../../../shared/config'
 
-export function coldMigrationPlan(before: string) {
+export function coldMigrationPlan(before: string, configPath: string) {
+  const config = loadExampleConfig(configPath)
   return {
-    hotDbTargetGb: 5,
-    key: buildColdObjectKey('greenhouse/2026-Q1', before),
+    hotDbTargetGb: config.storage.hotDbTargetGb,
+    key: buildColdObjectKey(config.storage.coldPrefix, before),
     merkleVerified: true,
   }
 }
 
 if (process.argv[1]?.endsWith('cold-migration.ts')) {
-  const before = process.argv.find((x) => x.startsWith('--before='))?.slice('--before='.length) ?? '2026-03-01'
-  console.log(JSON.stringify(coldMigrationPlan(before)))
+  const before = requiredArg('--before')
+  const configPath = requiredArg('--config')
+  console.log(JSON.stringify(coldMigrationPlan(before, configPath)))
 }

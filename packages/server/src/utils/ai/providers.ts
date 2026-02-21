@@ -12,7 +12,7 @@ import {
   aiProviders,
   aiResponders,
 } from "../../database/workspaces/schema"
-import type { AiPurpose } from "@wenyan/shared"
+import type { AiPurpose } from "@andrey-kokoev/wenyan-shared"
 
 export type AiMessage = {
   system: string

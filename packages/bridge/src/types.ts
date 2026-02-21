@@ -1,5 +1,5 @@
-import type { ArchiveRepository } from '@wenyan/archive'
-import type { BridgeAdapterConfig, BridgeProtocol, MessageEnvelope } from '@wenyan/core'
+import type { ArchiveRepository } from '@andrey-kokoev/wenyan-archive'
+import type { BridgeAdapterConfig, BridgeProtocol, MessageEnvelope } from '@andrey-kokoev/wenyan-core'
 
 export interface ForeignMetadata {
   protocol: BridgeProtocol

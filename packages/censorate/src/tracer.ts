@@ -13,7 +13,7 @@ export interface TraceContextMetadata {
 export class WenyanTracer {
   private readonly tracer: Tracer
 
-  constructor(name = '@wenyan/censorate') {
+  constructor(name = '@andrey-kokoev/wenyan-censorate') {
     this.tracer = trace.getTracer(name)
   }
 

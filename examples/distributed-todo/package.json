@@ -3,14 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "todo:init": "tsx src/cli.ts init",
+    "todo:init-keys": "tsx scripts/init-keys.ts",
+    "todo:init": "tsx src/cli.ts init --config=./config.json",
     "todo:create": "tsx src/cli.ts create",
-    "todo:amend": "tsx src/cli.ts amend-constitution",
-    "todo:sync": "tsx src/cli.ts sync",
+    "todo:amend": "tsx src/cli.ts amend-constitution --config=./config.json",
+    "todo:sync": "tsx src/cli.ts sync --config=./config.json",
     "todo:audit": "tsx src/cli.ts audit"
   },
   "dependencies": {
-    "@wenyan/core": "workspace:*"
+    "@andrey-kokoev/wenyan-core": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.5"

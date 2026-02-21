@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "imperial:init": "tsx src/topology.ts",
-    "imperial:ceremony": "tsx src/ceremony.ts",
-    "imperial:scenario": "tsx src/scenarios/grand-opening.ts"
+    "imperial:init-keys": "tsx scripts/init-keys.ts",
+    "imperial:init": "tsx src/topology.ts --config=./config.json",
+    "imperial:ceremony": "tsx src/ceremony.ts --config=./config.json",
+    "imperial:scenario": "tsx src/scenarios/grand-opening.ts --config=./config.json"
   },
   "dependencies": {
-    "@wenyan/imperial-works": "workspace:*",
-    "@wenyan/mobile-foreman": "workspace:*"
+    "@andrey-kokoev/wenyan-imperial-works": "workspace:*",
+    "@andrey-kokoev/wenyan-mobile-foreman": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.5"

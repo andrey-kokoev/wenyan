@@ -4,7 +4,7 @@ path = "./wenyan.dang'an"
 
 [genesis]
 node_id = "00000000-0000-4000-8000-000000002562"
-genesis_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+genesis_key = "${GENESIS_KEY}"
 
 [gateway.listen]
 host = "127.0.0.1"

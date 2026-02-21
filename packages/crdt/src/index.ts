@@ -1,4 +1,4 @@
-import type { VectorClock } from '@wenyan/core'
+import type { VectorClock } from '@andrey-kokoev/wenyan-core'
 
 export type VectorOrder = 'dominates' | 'dominated' | 'concurrent' | 'equal'
 

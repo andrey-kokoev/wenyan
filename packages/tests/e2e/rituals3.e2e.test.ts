@@ -171,9 +171,17 @@ function seedGenesisConstitution(repo: SqliteArchiveRepository): void {
       retention_days: 3650,
       rate_limits: {},
     },
+    access_control: {
+      read_permissions: {
+        admin: ['*'],
+        genesis_admin: ['*'],
+      },
+      anonymous_read: true,
+      query_hash_only: true,
+    },
   }
 
-  const seededLawTypes: EdictLawType[] = ['appointment', 'classification', 'routing', 'admission', 'protocol', 'regulation']
+  const seededLawTypes: EdictLawType[] = ['appointment', 'classification', 'routing', 'admission', 'protocol', 'regulation', 'access_control']
   for (const lawType of seededLawTypes) {
     if (repo.getCurrentLaw(lawType, nowIso)) continue
     archiveSeed(
@@ -221,18 +229,30 @@ async function submit(app: ReturnType<typeof buildGateway>, message: Record<stri
   })
 }
 
-async function readState(app: ReturnType<typeof buildGateway>, id: string): Promise<{
+async function waitForState(
+  app: ReturnType<typeof buildGateway>,
+  id: string,
+  expected: string,
+  timeoutMs = 5000,
+): Promise<{
   state: string
   transitions: Array<{ reason?: string }>
   message: MessageEnvelope
 }> {
-  const res = await app.request(`/messages/${id}`)
-  expect(res.status).toBe(200)
-  return (await res.json()) as {
-    state: string
-    transitions: Array<{ reason?: string }>
-    message: MessageEnvelope
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const res = await app.request(`/messages/${id}`)
+    if (res.status === 200) {
+      const body = (await res.json()) as {
+        state: string
+        transitions: Array<{ reason?: string }>
+        message: MessageEnvelope
+      }
+      if (body.state === expected) return body
+    }
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
   }
+  throw new Error(`timeout waiting for ${id} -> ${expected}`)
 }
 
 function lastReason(transitions: Array<{ reason?: string }>): string | undefined {
@@ -259,7 +279,7 @@ describe('Ritual 1: Grand Secretariat Establishment (Genesis Bootstrap)', () => 
     const tiBefore = tableCount(file, 'ti_definition_index')
 
     expect(tiBefore).toBe(2)
-    expect(edictsBefore).toBe(6)
+    expect(edictsBefore).toBe(7)
 
     seedGenesisConstitution(repo)
     expect(tableCount(file, 'messages')).toBe(messagesBefore)
@@ -269,9 +289,9 @@ describe('Ritual 1: Grand Secretariat Establishment (Genesis Bootstrap)', () => 
     seedGenreDefinition(repo, 'petition')
     const app = buildGateway(repo, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
     const accepted = await submit(app, petitionMessage())
-    expect(accepted.status).toBe(201)
+    expect(accepted.status).toBe(202)
     const body = await accepted.json() as { id: string }
-    const state = await readState(app, body.id)
+    const state = await waitForState(app, body.id, 'archived')
     expect(state.state).toBe('archived')
 
     repo.close()
@@ -302,7 +322,8 @@ describe('Ritual 2: Imperial Catalogue (Ti Definition Creation)', () => {
         },
       }),
     )
-    expect(tiRes.status).toBe(201)
+    expect(tiRes.status).toBe(202)
+    await waitForState(app, tiId, 'archived')
 
     const badPetition = await submit(app, petitionMessage({
       payload: { body: 'missing title now fails' },
@@ -313,7 +334,7 @@ describe('Ritual 2: Imperial Catalogue (Ti Definition Creation)', () => {
     const goodPetition = await submit(app, petitionMessage({
       payload: { title: 'new form', body: 'conforms' },
     }))
-    expect(goodPetition.status).toBe(201)
+    expect(goodPetition.status).toBe(202)
 
     const schema = repo.getActiveGenreSchema('petition') as { required?: string[] } | undefined
     expect(schema?.required).toEqual(['title'])
@@ -345,19 +366,20 @@ describe('Ritual 3: Appointment Edict (Governance without Structure Change)', ()
         1,
       ),
     )
-    expect(activeLaw.status).toBe(201)
+    expect(activeLaw.status).toBe(202)
+    await waitForState(app, activeLawId, 'archived')
 
     const clerkRes = await submit(app, petitionMessage({ role: 'clerk', actorId: 'clerk_01' }))
-    expect(clerkRes.status).toBe(201)
+    expect(clerkRes.status).toBe(202)
     const clerkId = (await clerkRes.json() as { id: string }).id
-    const clerkState = await readState(app, clerkId)
+    const clerkState = await waitForState(app, clerkId, 'rejected')
     expect(clerkState.state).toBe('rejected')
     expect(lastReason(clerkState.transitions)).toBe('actor-cannot-review')
 
     const censorRes = await submit(app, petitionMessage({ role: 'censor', actorId: 'censor_01' }))
-    expect(censorRes.status).toBe(201)
+    expect(censorRes.status).toBe(202)
     const censorId = (await censorRes.json() as { id: string }).id
-    const censorState = await readState(app, censorId)
+    const censorState = await waitForState(app, censorId, 'rejected')
     expect(censorState.state).toBe('rejected')
     expect(lastReason(censorState.transitions)).toBe('actor-cannot-authorize')
 
@@ -377,12 +399,13 @@ describe('Ritual 3: Appointment Edict (Governance without Structure Change)', ()
         activeLawId,
       ),
     )
-    expect(futureLaw.status).toBe(201)
+    expect(futureLaw.status).toBe(202)
+    await waitForState(app, futureLawId, 'archived')
 
     const adminRes = await submit(app, petitionMessage({ role: 'admin', actorId: 'admin_01' }))
-    expect(adminRes.status).toBe(201)
+    expect(adminRes.status).toBe(202)
     const adminId = (await adminRes.json() as { id: string }).id
-    const adminState = await readState(app, adminId)
+    const adminState = await waitForState(app, adminId, 'archived')
     expect(adminState.state).toBe('archived')
 
     const nowLaw = repo.getCurrentLaw('appointment', new Date().toISOString())
@@ -406,11 +429,13 @@ describe('Ritual 4: Constitutional Amendment (Superseding Ti)', () => {
         required: ['title'],
       }),
     )
-    expect(v1Res.status).toBe(201)
+    expect(v1Res.status).toBe(202)
+    await waitForState(app, tiV1, 'archived')
 
     const v1DocRes = await submit(app, petitionMessage({ payload: { title: 'legacy petition' } }))
-    expect(v1DocRes.status).toBe(201)
+    expect(v1DocRes.status).toBe(202)
     const v1DocId = (await v1DocRes.json() as { id: string }).id
+    await waitForState(app, v1DocId, 'archived')
 
     const tiV2 = `ti-petition-v2-${randomUUID()}`
     const v2Res = await submit(
@@ -420,7 +445,8 @@ describe('Ritual 4: Constitutional Amendment (Superseding Ti)', () => {
         required: ['title', 'urgency'],
       }, tiV1),
     )
-    expect(v2Res.status).toBe(201)
+    expect(v2Res.status).toBe(202)
+    await waitForState(app, tiV2, 'archived')
 
     const active = repo.getActiveGenreSchema('petition') as { required?: string[] } | undefined
     expect(active?.required).toEqual(['title', 'urgency'])
@@ -429,7 +455,7 @@ describe('Ritual 4: Constitutional Amendment (Superseding Ti)', () => {
     expect(obsolete.status).toBe(400)
     expect((await obsolete.json() as { error: string }).error).toBe('schema-noncompliant')
 
-    const historical = await readState(app, v1DocId)
+    const historical = await waitForState(app, v1DocId, 'archived')
     expect(historical.state).toBe('archived')
     expect(repo.stateAt(v1DocId, new Date().toISOString())).toBe('archived')
     expect((repo.getMessage(tiV1)?.payload as { version?: string }).version).toBe('1.0.0')
@@ -458,7 +484,8 @@ describe('Ritual 5: Precedence Conflict (Edict Override)', () => {
         1,
       ),
     )
-    expect(e1.status).toBe(201)
+    expect(e1.status).toBe(202)
+    await waitForState(app, edict1, 'archived')
 
     const blocked = await submit(app, petitionMessage({
       payload: {
@@ -466,9 +493,9 @@ describe('Ritual 5: Precedence Conflict (Edict Override)', () => {
         routing: { destination: ['emperor'] },
       },
     }))
-    expect(blocked.status).toBe(201)
+    expect(blocked.status).toBe(202)
     const blockedId = (await blocked.json() as { id: string }).id
-    const blockedState = await readState(app, blockedId)
+    const blockedState = await waitForState(app, blockedId, 'rejected')
     expect(blockedState.state).toBe('rejected')
     expect(lastReason(blockedState.transitions)).toBe('routing-destination-disallowed')
 
@@ -487,7 +514,8 @@ describe('Ritual 5: Precedence Conflict (Edict Override)', () => {
         edict1,
       ),
     )
-    expect(e2.status).toBe(201)
+    expect(e2.status).toBe(202)
+    await waitForState(app, edict2, 'archived')
 
     const law = repo.getCurrentLaw('routing', new Date().toISOString())
     expect(law?.messageId).toBe(edict2)
@@ -500,9 +528,9 @@ describe('Ritual 5: Precedence Conflict (Edict Override)', () => {
         routing: { destination: ['emperor'] },
       },
     }))
-    expect(allowed.status).toBe(201)
+    expect(allowed.status).toBe(202)
     const allowedId = (await allowed.json() as { id: string }).id
-    expect((await readState(app, allowedId)).state).toBe('archived')
+    expect((await waitForState(app, allowedId, 'archived')).state).toBe('archived')
 
     repo.close()
   })
@@ -542,9 +570,9 @@ describe('Ritual 6: Cold Start Verification (Constitution from Empty)', () => {
 
     const nodeBApp = buildGateway(nodeB, new ReliableChannel(), IMPERIAL_CONTEXT, { lawMode: 'strict' })
     const postSync = await submit(nodeBApp, petitionMessage({ id: `synced-${randomUUID()}` }))
-    expect(postSync.status).toBe(201)
+    expect(postSync.status).toBe(202)
     const postSyncId = (await postSync.json() as { id: string }).id
-    expect((await readState(nodeBApp, postSyncId)).state).toBe('archived')
+    expect((await waitForState(nodeBApp, postSyncId, 'archived')).state).toBe('archived')
 
     nodeARead.close()
     nodeB.close()
@@ -596,7 +624,8 @@ describe('Ritual 8: Protocol Edict (Meta-Governance)', () => {
         required_acks_by_genre: { dispatch: 2 },
       }, 1),
     )
-    expect(lawRes.status).toBe(201)
+    expect(lawRes.status).toBe(202)
+    await waitForState(app, protocolId, 'archived')
 
     const dispatchRes = await submit(
       app,
@@ -610,9 +639,9 @@ describe('Ritual 8: Protocol Edict (Meta-Governance)', () => {
         actor: { id: 'war-ministry', role: 'admin' },
       }),
     )
-    expect(dispatchRes.status).toBe(201)
+    expect(dispatchRes.status).toBe(202)
     const dispatchId = (await dispatchRes.json() as { id: string }).id
-    const pendingState = await readState(app, dispatchId)
+    const pendingState = await waitForState(app, dispatchId, 'pending')
     expect(pendingState.state).toBe('pending')
 
     const firstAck = await app.request(`/messages/${dispatchId}/approvals`, {
@@ -650,7 +679,9 @@ describe('Ritual 8: Protocol Edict (Meta-Governance)', () => {
         required_acks_by_genre: { dispatch: 0 },
       }, 2),
     )
-    expect(invalidProtocol.status).toBe(201)
+    expect(invalidProtocol.status).toBe(202)
+    const invalidProtocolId = (await invalidProtocol.json() as { id: string }).id
+    await waitForState(app, invalidProtocolId, 'archived')
 
     const dispatchRes = await submit(
       app,
@@ -664,9 +695,9 @@ describe('Ritual 8: Protocol Edict (Meta-Governance)', () => {
         actor: { id: 'war-ministry', role: 'admin' },
       }),
     )
-    expect(dispatchRes.status).toBe(201)
+    expect(dispatchRes.status).toBe(202)
     const dispatchId = (await dispatchRes.json() as { id: string }).id
-    const state = await readState(app, dispatchId)
+    const state = await waitForState(app, dispatchId, 'rejected')
     expect(state.state).toBe('rejected')
     expect(lastReason(state.transitions)).toBe('protocol-law-invalid')
 

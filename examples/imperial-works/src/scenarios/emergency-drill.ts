@@ -1,3 +1,3 @@
-export function emergencyDrill(backlog = 1000): { paused: number; routedInMs: number } {
-  return { paused: backlog, routedInMs: 800 }
+export function emergencyDrill(backlog: number, routedInMs: number): { paused: number; routedInMs: number } {
+  return { paused: backlog, routedInMs }
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { parseBootstrapConfigToml } from '@wenyan/core'
+import { parseBootstrapConfigToml } from '@andrey-kokoev/wenyan-core'
 import { BridgeGateway } from './gateway'
 
 async function main(): Promise<void> {

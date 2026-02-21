@@ -1,5 +1,5 @@
 {
-  "name": "@wenyan/core",
+  "name": "@andrey-kokoev/wenyan-core",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",

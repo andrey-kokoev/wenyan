@@ -120,4 +120,32 @@ mode = "strict"
       }),
     ).toThrow(/duplicate bridge adapter id/)
   })
+
+  it('rejects consort pbft threshold < 2 by default', () => {
+    expect(() =>
+      BootstrapConfigSchema.parse({
+        archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
+        genesis: {
+          node_id: '11111111-1111-4111-8111-111111111111',
+          genesis_key: 'Zm9v',
+        },
+        gateway: { listen: { host: '127.0.0.1', port: 8787 } },
+        distributed: {
+          mode: 'consort',
+          node_id: 'node-1',
+          bind_gossip: '127.0.0.1:7946',
+          seeds: [],
+          fanout: 3,
+          suspicion_timeout_ms: 5000,
+        },
+        consensus: {
+          kind: 'pbft',
+          replica_set: ['node-1', 'node-2', 'node-3'],
+          constitutional_threshold: 1,
+          view_change_timeout_ms: 5000,
+          allow_single_replica: false,
+        },
+      }),
+    ).toThrow(/threshold >= 2/)
+  })
 })

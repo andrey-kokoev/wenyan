@@ -7,7 +7,7 @@ import {
   apiError,
   isProtectedRole,
   type ValidationErrorDetail,
-} from "@wenyan/shared"
+} from "@andrey-kokoev/wenyan-shared"
 import { roles } from "../../../auth/schema"
 
 const bodySchema = z.object({

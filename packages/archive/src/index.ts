@@ -1,6 +1,6 @@
-import type { EdictLawType, MessageEnvelope, MessageState, ResolvedLaw, Transition } from '@wenyan/core'
-import type { SealRecord } from '@wenyan/seal'
-import type { Seal0Receipt } from '@wenyan/core'
+import type { EdictLawType, MessageEnvelope, MessageState, ResolvedLaw, Transition } from '@andrey-kokoev/wenyan-core'
+import type { SealRecord } from '@andrey-kokoev/wenyan-seal'
+import type { Seal0Receipt } from '@andrey-kokoev/wenyan-core'
 
 export interface DocketItem {
   id: string
@@ -32,7 +32,7 @@ export interface MerkleProof {
   messageId: string
   leafHash: string
   rootHash: string
-  path: string[]
+  path: Array<{ siblingHash: string; side: 'left' | 'right' }>
 }
 
 export interface GossipLogEntry {

@@ -8,7 +8,7 @@ import {
   aiProviders,
   aiResponders,
 } from "../../../database/workspaces/schema"
-import { AiPurposeSchema } from "@wenyan/shared"
+import { AiPurposeSchema } from "@andrey-kokoev/wenyan-shared"
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 app.use("*", requirePermission("configure_application"))

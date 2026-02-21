@@ -38,7 +38,7 @@
    - Corrupt B's SQLite manually → Restart join → Verify rejection with root mismatch
 
 7. The Package Separation
-   - Build Docker image with only @wenyan/core (no genesis package)
+   - Build Docker image with only @andrey-kokoev/wenyan-core (no genesis package)
    - Verify node starts, responds 503 to all submissions
    - Mount genesis package → Verify genesis apply works
    - Verify core does not import genesis (static analysis check)

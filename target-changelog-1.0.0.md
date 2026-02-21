@@ -3,7 +3,7 @@
 ### Added
 - Security process assets (`SECURITY.md`, `audit/`, fuzz harnesses, SBOM tooling).
 - Formal protocol/spec drafts under `spec/`.
-- Benchmark package `@wenyan/benchmark` with toy and stress profiles.
+- Benchmark package `@andrey-kokoev/wenyan-benchmark` with toy and stress profiles.
 - Infrastructure scaffolding: Terraform, Helm chart, Go operator stub, monitoring dashboards/rules.
 - Changesets configuration and CI/release/security workflows.
 

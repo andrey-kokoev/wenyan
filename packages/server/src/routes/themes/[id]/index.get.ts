@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { drizzle } from "drizzle-orm/d1"
 import { eq } from "drizzle-orm"
-import { isAdmin, isDeveloper } from "@wenyan/shared"
+import { isAdmin, isDeveloper } from "@andrey-kokoev/wenyan-shared"
 import { themes } from "../../../database/workspaces/schema"
 import type { Bindings, Variables } from "../../../types/env"
 import { ThemeSchema } from "../../../schemas/theme"

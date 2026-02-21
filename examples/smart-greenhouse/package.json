@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "greenhouse:simulate": "tsx src/simulator/sensor-fleet.ts",
+    "greenhouse:init-keys": "tsx scripts/init-keys.ts",
+    "greenhouse:simulate": "tsx src/simulator/sensor-fleet.ts --config=./config.json",
     "greenhouse:bridge": "tsx src/sensor-bridge.ts",
-    "greenhouse:query": "tsx src/analytics.ts",
-    "greenhouse:cold": "tsx src/lib/cold-migration.ts"
+    "greenhouse:query": "tsx src/analytics.ts --config=./config.json",
+    "greenhouse:cold": "tsx src/lib/cold-migration.ts --config=./config.json"
   },
   "dependencies": {
-    "@wenyan/core": "workspace:*"
+    "@andrey-kokoev/wenyan-core": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.5"

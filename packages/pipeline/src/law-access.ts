@@ -1,4 +1,4 @@
-import type { EdictLawType } from '@wenyan/core'
+import type { EdictLawType } from '@andrey-kokoev/wenyan-core'
 import type { LawResolver } from './law-resolver'
 
 export type LawContentLoadResult<T> =

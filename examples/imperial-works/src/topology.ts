@@ -1,11 +1,4 @@
-const nodes = [
-  'emperor',
-  'minister_works',
-  'minister_finance',
-  'censor_chief',
-  'foreman_electrical',
-  'foreman_structural',
-  'foreman_hydraulic',
-  'worker_gateway',
-]
-console.log(JSON.stringify({ nodes, tiers: 4, topology: 'imperial-works' }))
+import { loadExampleConfig, requiredArg } from '../../shared/config'
+
+const config = loadExampleConfig(requiredArg('--config'))
+console.log(JSON.stringify({ nodes: config.nodes, tiers: config.tiers, topology: 'imperial-works' }))

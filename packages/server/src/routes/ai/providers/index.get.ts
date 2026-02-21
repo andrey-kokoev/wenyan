@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import type { Bindings, Variables } from "../../../types/env"
 import { drizzle } from "drizzle-orm/d1"
 import { aiProviders, aiResponders } from "../../../database/workspaces/schema"
-import { AiPurposeSchema } from "@wenyan/shared"
+import { AiPurposeSchema } from "@andrey-kokoev/wenyan-shared"
 import { eq } from "drizzle-orm"
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()

@@ -1,4 +1,4 @@
-import type { BridgeAdapterConfig, MessageEnvelope, MqttBridgeAdapterConfig } from '@wenyan/core'
+import type { BridgeAdapterConfig, MessageEnvelope, MqttBridgeAdapterConfig } from '@andrey-kokoev/wenyan-core'
 import type { AdapterContext, BridgeAdapter, ForeignMetadata, FromWenyan, IntoWenyan, TranslationResult } from '../types'
 
 interface MqttPayload {

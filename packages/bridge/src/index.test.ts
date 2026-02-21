@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseBootstrapConfig } from '@wenyan/core'
+import { parseBootstrapConfig } from '@andrey-kokoev/wenyan-core'
 import { BridgeGateway } from './gateway'
 import { NatsIntoWenyanAdapter } from './adapters/nats'
 import { resolveBridgeConflict } from './sync'

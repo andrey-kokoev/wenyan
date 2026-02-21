@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto'
-import type { Seal0Receipt } from '@wenyan/core'
+import type { Seal0Receipt } from '@andrey-kokoev/wenyan-core'
 
 export interface Seal0WriteInput {
   documentId?: string

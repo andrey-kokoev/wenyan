@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { PbftConsensus } from '../../../../packages/consensus/src/index'
 import { BridgeGateway } from '../../../../packages/bridge/src/gateway'
 import { ErpBridgeAdapter } from '../../../../packages/bridge/src/adapters/erp-http'
 import { PayrollBridgeAdapter } from '../../../../packages/bridge/src/adapters/payroll-http'
@@ -9,8 +8,8 @@ import { parseBootstrapConfig } from '../../../../packages/core/src/bootstrap'
 import { ConstructionCorruptionDetector } from '../../../../packages/imperial-works/src/index'
 import { createOfflineStore, queueReviewSeal, syncWithMinister } from '../../../../packages/mobile-foreman/src/index'
 import { allowGenres, cleanupHarness, ensureGenre, message, setupExampleOffice, submit } from './harness'
-
-const suite = process.env.RUN_EXAMPLES_E2E === '1' ? describe : describe.skip
+import { ritualNumbers } from './fixtures'
+import { createPbftFixture } from '../pbft-helpers'
 
 afterEach(() => {
   cleanupHarness()
@@ -20,23 +19,30 @@ function merkleLike(items: string[]): string {
   return createHash('sha256').update(items.join('|')).digest('hex')
 }
 
-suite('Wenyan v0.7.0 imperial works rituals', () => {
+describe('Wenyan v0.7.0 imperial works rituals', () => {
   it('R1 forbidden blueprint: constitutional amendment gating and threshold behavior', async () => {
     const { app } = await setupExampleOffice('r7-1')
     await ensureGenre(app, 'blueprint_change', ['structural_modification'])
     await allowGenres(app, ['blueprint_change'])
 
-    const pbft = new PbftConsensus({ replicaSet: ['emperor', 'minister_works', 'censor_chief'], threshold: 2 })
-    const proposal = pbft.proposeTiDefinition('bp-1', 'emperor')
-    pbft.onPrepare({ ...proposal, nodeId: 'minister_works', phase: 'prepare', signature: 's', at: new Date().toISOString() })
+    const { pbft, signed } = await createPbftFixture(['emperor', 'minister_works', 'censor_chief'], 2)
+    const proposal = await pbft.proposeTiDefinition('bp-1', 'emperor')
+    const at = new Date().toISOString()
+    await pbft.onPrepare(await signed({ ...proposal, nodeId: 'minister_works', phase: 'prepare', at }))
     expect(pbft.commitIfThreshold('bp-1')).toBe(false)
 
-    const workerBlocked = await submit(app, message('bp-worker', 'blueprint_change', { structural_modification: 'expand' }, { actor_id: 'worker_001' }))
-    expect([201, 403]).toContain(workerBlocked.status)
+    const workerBlocked = await submit(
+      app,
+      {
+        ...message('bp-worker', 'blueprint_change', { structural_modification: 'expand' }),
+        actor: { id: 'worker_001', role: 'worker_001' },
+      },
+    )
+    expect(workerBlocked.status).toBe(403)
 
-    pbft.onPrepare({ ...proposal, nodeId: 'censor_chief', phase: 'prepare', signature: 's', at: new Date().toISOString() })
-    pbft.onCommit({ ...proposal, nodeId: 'minister_works', phase: 'commit', signature: 's', at: new Date().toISOString() })
-    pbft.onCommit({ ...proposal, nodeId: 'censor_chief', phase: 'commit', signature: 's', at: new Date().toISOString() })
+    await pbft.onPrepare(await signed({ ...proposal, nodeId: 'censor_chief', phase: 'prepare', at }))
+    await pbft.onCommit(await signed({ ...proposal, nodeId: 'minister_works', phase: 'commit', at }))
+    await pbft.onCommit(await signed({ ...proposal, nodeId: 'censor_chief', phase: 'commit', at }))
     expect(pbft.commitIfThreshold('bp-1')).toBe(true)
   })
 
@@ -69,14 +75,14 @@ suite('Wenyan v0.7.0 imperial works rituals', () => {
     expect(emergency.status).toBe(202)
 
     const blocked = await submit(app, message('wo-after', 'work_order', { task_description: 'Continue' }))
-    expect([403, 423]).toContain(blocked.status)
+    expect(blocked.status).toBe(423)
   })
 
   it('R4 tunnel foreman: offline queue and sync transfer', async () => {
     const store = createOfflineStore()
-    for (let i = 0; i < 10; i += 1) queueReviewSeal(store, `cr-${i}`, ['s2', 's3', 's4', 's5'])
+    for (let i = 0; i < ritualNumbers.r9.sampleCount; i += 1) queueReviewSeal(store, `cr-${i}`, ['s2', 's3', 's4', 's5'])
     const sync = syncWithMinister({ store, localRoot: 'x', remoteRoot: 'y' })
-    expect(sync.transferred).toBe(10)
+    expect(sync.transferred).toBe(ritualNumbers.r9.sampleCount)
   })
 
   it('R5 ghost worker: impossible travel detection without retroactive invalidation', async () => {
@@ -140,9 +146,9 @@ suite('Wenyan v0.7.0 imperial works rituals', () => {
   })
 
   it('R9 grand opening: merkle audit + reconciliation counts', async () => {
-    const sample = Array.from({ length: 10 }, (_, i) => `tile_${i}`)
+    const sample = Array.from({ length: ritualNumbers.r9.sampleCount }, (_, i) => `tile_${i}`)
     const root = merkleLike(sample)
     expect(root.length).toBeGreaterThan(10)
-    expect(sample.length).toBe(10)
+    expect(sample.length).toBe(ritualNumbers.r9.sampleCount)
   })
 })

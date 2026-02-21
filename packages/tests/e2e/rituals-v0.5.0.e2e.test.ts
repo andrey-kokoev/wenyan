@@ -111,6 +111,24 @@ async function setupOffice(name: string): Promise<{ repo: SqliteArchiveRepositor
   return { repo, app, dir }
 }
 
+async function waitForState(
+  app: ReturnType<typeof buildGateway>,
+  id: string,
+  expected: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const res = await app.request(`/messages/${id}`)
+    if (res.status === 200) {
+      const json = await res.json() as { state?: string }
+      if (json.state === expected) return
+    }
+    await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 50))
+  }
+  throw new Error(`timeout waiting for ${id} -> ${expected}`)
+}
+
 function withGatewayFetch(app: ReturnType<typeof buildGateway>, base = 'http://bridge.local') {
   const original = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -140,6 +158,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
       bridge: {
         enabled: true,
         adapters: [adapter.config],
+        sync: { mode: 'poll', poll_interval_ms: 50, batch_size: 100 },
       },
     })
     const bridge = new BridgeGateway({ bootstrap, archive: repo, apiBaseUrl: 'http://bridge.local/api/wenyan', adapters: [adapter] })
@@ -170,6 +189,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
       },
     )
 
+    await waitForState(app, 'seq-42', 'archived')
     const archived = await app.request('/messages/seq-42')
     const json = await archived.json() as { message: MessageEnvelope; seals: unknown[] }
     expect(archived.status).toBe(200)
@@ -191,7 +211,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000011', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
       gateway: { listen: { host: '127.0.0.1', port: 8787 } },
-      bridge: { enabled: true, adapters: [adapter.config] },
+      bridge: { enabled: true, adapters: [adapter.config], sync: { mode: 'poll', poll_interval_ms: 50, batch_size: 100 } },
     })
     const bridge = new BridgeGateway({ bootstrap, archive: repo, apiBaseUrl: 'http://bridge.local/api/wenyan', adapters: [adapter] })
     await expect(bridge.start()).rejects.toThrow('bridge target genre undefined')
@@ -207,7 +227,7 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
       archive: { engine: 'sqlite', path: "./wenyan.dang'an" },
       genesis: { node_id: '00000000-0000-4000-8000-000000000012', genesis_key: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' },
       gateway: { listen: { host: '127.0.0.1', port: 8787 } },
-      bridge: { enabled: true, adapters: [adapter.config] },
+      bridge: { enabled: true, adapters: [adapter.config], sync: { mode: 'poll', poll_interval_ms: 50, batch_size: 100 } },
     })
     const bridge = new BridgeGateway({ bootstrap, archive: repo, apiBaseUrl: 'http://bridge.local/api/wenyan', adapters: [adapter] })
     await bridge.start()
@@ -224,9 +244,14 @@ describe('Wenyan v0.5.0 bridge rituals', () => {
         metadata: { routing: { foreign_system: 'nats' } },
       }),
     })
-    expect(submitRes.status).toBe(201)
+    expect(submitRes.status).toBe(202)
+    await waitForState(app, 'edict-outbound-1', 'archived')
 
-    const sync = await bridge.syncOnce('nats-main')
+    let sync = await bridge.syncOnce('nats-main')
+    if (sync.pushed === 0) {
+      await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 100))
+      sync = await bridge.syncOnce('nats-main')
+    }
     expect(sync.pushed).toBeGreaterThanOrEqual(1)
     expect(adapter.published.length).toBeGreaterThan(0)
     const state = repo.getForeignSyncState('edict-outbound-1')

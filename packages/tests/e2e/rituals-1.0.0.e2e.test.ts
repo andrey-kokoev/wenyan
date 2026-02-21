@@ -121,7 +121,7 @@ describe('Wenyan v1.0 rituals', () => {
       }),
     })
 
-    expect(res.status).toBe(201)
+    expect(res.status).toBe(202)
     const body = await res.json() as { id: string }
     const status = await app.request(`/messages/${body.id}`)
     expect(status.status).toBe(200)

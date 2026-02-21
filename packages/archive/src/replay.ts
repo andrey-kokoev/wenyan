@@ -1,4 +1,4 @@
-import type { MessageState, Transition } from '@wenyan/core'
+import type { MessageState, Transition } from '@andrey-kokoev/wenyan-core'
 
 export const replay = (transitions: Transition[]): MessageState =>
   transitions

@@ -20,6 +20,7 @@ const GatewayListenSchema = z.object({
 const GatewayConfigSchema = z.object({
   listen: GatewayListenSchema,
   upstream: z.string().url().optional(),
+  stream_mode: z.enum(['sse']).default('sse'),
 })
 
 const LawConfigSchema = z.object({
@@ -48,7 +49,34 @@ const ConsensusConfigSchema = z.object({
   replica_set: z.array(z.string().min(1)).default([]),
   constitutional_threshold: z.number().int().positive().default(3),
   view_change_timeout_ms: z.number().int().positive().default(5000),
+  allow_single_replica: z.boolean().default(false),
 })
+
+const AuthConfigSchema = z
+  .object({
+    jwt_issuer: z.string().min(1).default('wenyan.local'),
+    jwt_audience: z.string().min(1).default('wenyan-gateway'),
+    jwt_alg: z.enum(['HS256', 'EdDSA']).default('HS256'),
+    jwt_secret: z.string().min(1).optional(),
+    jwt_public_keys: z.record(z.string(), z.string().min(1)).optional(),
+    allow_header_actor: z.boolean().default(false),
+  })
+  .superRefine((val, ctx) => {
+    if (val.jwt_alg === 'HS256' && !val.jwt_secret) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['jwt_secret'],
+        message: 'jwt_secret is required when jwt_alg=HS256',
+      })
+    }
+    if (val.jwt_alg === 'EdDSA' && (!val.jwt_public_keys || Object.keys(val.jwt_public_keys).length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['jwt_public_keys'],
+        message: 'jwt_public_keys is required when jwt_alg=EdDSA',
+      })
+    }
+  })
 
 const SyncConfigSchema = z.object({
   batch_size: z.number().int().positive().default(200),
@@ -163,6 +191,13 @@ export const BootstrapConfigSchema = z.object({
   archive: ArchiveConfigSchema,
   genesis: GenesisConfigSchema,
   gateway: GatewayConfigSchema,
+  auth: AuthConfigSchema.default({
+    jwt_issuer: 'wenyan.local',
+    jwt_audience: 'wenyan-gateway',
+    jwt_alg: 'HS256',
+    jwt_secret: 'wenyan-local-jwt-secret',
+    allow_header_actor: false,
+  }),
   law: LawConfigSchema.default({ mode: 'strict' }),
   law_cache: LawCacheConfigSchema.optional(),
   distributed: DistributedConfigSchema.default({
@@ -178,6 +213,7 @@ export const BootstrapConfigSchema = z.object({
     replica_set: [],
     constitutional_threshold: 3,
     view_change_timeout_ms: 5000,
+    allow_single_replica: false,
   }),
   sync: SyncConfigSchema.default({
     batch_size: 200,
@@ -199,6 +235,19 @@ export const BootstrapConfigSchema = z.object({
       max_retries: 10,
     },
   }),
+}).superRefine((val, ctx) => {
+  if (
+    val.distributed.mode === 'consort' &&
+    val.consensus.kind === 'pbft' &&
+    val.consensus.constitutional_threshold < 2 &&
+    !val.consensus.allow_single_replica
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['consensus', 'constitutional_threshold'],
+      message: 'consort PBFT requires threshold >= 2 unless allow_single_replica=true',
+    })
+  }
 })
 
 export type BootstrapConfig = z.infer<typeof BootstrapConfigSchema>

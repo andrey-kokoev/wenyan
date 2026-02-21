@@ -1,19 +1,13 @@
 # Examples E2E
 
-Run core lane:
+Run examples rituals (strict default):
 
 ```bash
-RUN_EXAMPLES_E2E=1 pnpm --filter @wenyan/tests test -- e2e/examples/rituals-0.6.0-examples.e2e.test.ts
+pnpm --filter @andrey-kokoev/wenyan-tests test -- e2e/examples/rituals-0.6.0-examples.e2e.test.ts e2e/examples/rituals-0.7.0.e2e.test.ts
 ```
 
-Run heavy lane:
+Run bridge integration rituals (strict default):
 
 ```bash
-RUN_EXAMPLES_E2E=1 RUN_EXAMPLES_HEAVY=1 pnpm --filter @wenyan/tests test -- e2e/examples/rituals-0.6.0-examples.e2e.test.ts
-```
-
-Run imperial works rituals (v0.7.0):
-
-```bash
-RUN_EXAMPLES_E2E=1 pnpm --filter @wenyan/tests test -- e2e/examples/rituals-0.7.0.e2e.test.ts
+pnpm --filter @andrey-kokoev/wenyan-bridge test -- src/nats.integration.test.ts src/kafka.integration.test.ts src/mqtt.integration.test.ts
 ```

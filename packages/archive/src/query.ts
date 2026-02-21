@@ -1,4 +1,4 @@
-import type { MessageState, Transition } from '@wenyan/core'
+import type { MessageState, Transition } from '@andrey-kokoev/wenyan-core'
 
 export function stateAtFromTransitions(transitions: Transition[], atIso: string): MessageState {
   const candidate = transitions

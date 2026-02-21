@@ -7,8 +7,8 @@ import {
   type MessageState,
   type ResolvedLaw,
   type Transition,
-} from '@wenyan/core'
-import type { SealRecord } from '@wenyan/seal'
+} from '@andrey-kokoev/wenyan-core'
+import type { SealRecord } from '@andrey-kokoev/wenyan-seal'
 import type {
   ArchiveRepository,
   BridgeDeadLetterRecord,
@@ -24,7 +24,7 @@ import type {
   TiDefinitionRecord,
   SiteStatus,
 } from './index'
-import { merkleRootForLeaves } from './merkle-dag'
+import { buildMerkleProofFromLeaves, merkleRootForLeaves } from './merkle-dag'
 
 export interface D1DatabaseLike {
   prepare(query: string): {
@@ -793,14 +793,42 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
   }
 
   async getMerkleRoot(scope: 'all' | 'constitutional' | 'legislative' = 'all'): Promise<string> {
+    const { leaves } = await this.collectMerkleLeaves(scope)
+    const root = merkleRootForLeaves(leaves)
+    await this.db
+      .prepare(
+        `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
+         ON CONFLICT(scope) DO UPDATE SET merkle_root = excluded.merkle_root, updated_at = excluded.updated_at`,
+      )
+      .bind(scope, root, new Date().toISOString())
+      .run()
+    return root
+  }
+
+  async getMerkleProof(messageId: string): Promise<MerkleProof | undefined> {
+    const { leaves, messageLeafRows } = await this.collectMerkleLeaves('all')
+    const idx = messageLeafRows.findIndex((r) => r.id === messageId)
+    if (idx < 0) return undefined
+    const proof = buildMerkleProofFromLeaves(leaves, idx)
+    return { messageId, leafHash: proof.leafHash, rootHash: proof.rootHash, path: proof.path }
+  }
+
+  private async collectMerkleLeaves(scope: 'all' | 'constitutional' | 'legislative'): Promise<{
+    leaves: string[]
+    messageLeafRows: Array<{ id: string; h: string }>
+  }> {
     let where = 'archived_at IS NOT NULL'
     if (scope === 'constitutional') where += ' AND constitutional = 1'
     if (scope === 'legislative') where += " AND genre = 'edict'"
     const rows = await this.db
-      .prepare(`SELECT COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
+      .prepare(`SELECT id, COALESCE(content_hash, id) AS h FROM messages WHERE ${where} ORDER BY archived_at ASC, id ASC`)
       .bind()
       .all<Array<Record<string, unknown>>>()
-    const leaves = (rows as { results: Array<Record<string, unknown>> }).results.map((r) => String(r.h))
+    const messageLeafRows = (rows as { results: Array<Record<string, unknown>> }).results.map((r) => ({
+      id: String(r.id),
+      h: String(r.h),
+    }))
+    const leaves = messageLeafRows.map((r) => r.h)
     if (scope === 'all') {
       const readRows = await this.db
         .prepare('SELECT id, query_timestamp, result_hash FROM seal_0_log ORDER BY query_timestamp ASC, id ASC')
@@ -824,24 +852,7 @@ export class CloudflareArchiveRepository implements ArchiveRepository {
         leaves.push(sha256(`${String(c.created_at)}:${String(c.id)}`))
       }
     }
-    const root = merkleRootForLeaves(leaves)
-    await this.db
-      .prepare(
-        `INSERT INTO archive_state(scope, merkle_root, updated_at) VALUES(?, ?, ?)
-         ON CONFLICT(scope) DO UPDATE SET merkle_root = excluded.merkle_root, updated_at = excluded.updated_at`,
-      )
-      .bind(scope, root, new Date().toISOString())
-      .run()
-    return root
-  }
-
-  async getMerkleProof(messageId: string): Promise<MerkleProof | undefined> {
-    const row = await this.db
-      .prepare('SELECT COALESCE(content_hash, id) AS h FROM messages WHERE id = ?')
-      .bind(messageId)
-      .first<{ h?: string }>()
-    if (!row?.h) return undefined
-    return { messageId, leafHash: row.h, rootHash: await this.getMerkleRoot('all'), path: [] }
+    return { leaves, messageLeafRows }
   }
 
   async getSyncRange(fromCursor: string, limit: number): Promise<Transition[]> {

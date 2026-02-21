@@ -2,12 +2,12 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { createHash } from 'node:crypto'
-import { constitutionalMerkleRoot } from '@wenyan/channel'
-import { createEmptyOffice, applyGenesisFromDir } from '@wenyan/genesis'
-import { parseBootstrapConfigToml } from '@wenyan/core'
-import { SqliteArchiveRepository } from '@wenyan/archive/sqlite'
-import { BridgeGateway } from '@wenyan/bridge'
+import { createHash, createHmac } from 'node:crypto'
+import { constitutionalMerkleRoot } from '@andrey-kokoev/wenyan-channel'
+import { createEmptyOffice, applyGenesisFromDir } from '@andrey-kokoev/wenyan-genesis'
+import { parseBootstrapConfigToml } from '@andrey-kokoev/wenyan-core'
+import { SqliteArchiveRepository } from '@andrey-kokoev/wenyan-archive/sqlite'
+import { BridgeGateway } from '@andrey-kokoev/wenyan-bridge'
 
 const baseUrl = process.env.WENYAN_API_URL ?? 'http://127.0.0.1:8787/api/wenyan'
 
@@ -31,11 +31,34 @@ async function status(id: string) {
 function actorHeaders() {
   const actorId = process.env.WENYAN_ACTOR_ID ?? 'local-operator'
   const actorRole = process.env.WENYAN_ACTOR_ROLE ?? 'genesis_admin'
+  const token = issueLocalToken(actorId, actorRole)
   return {
-    'x-wenyan-actor-id': actorId,
-    'x-wenyan-actor-role': actorRole,
-    authorization: `Bearer ${actorId}`,
+    authorization: `Bearer ${token}`,
   }
+}
+
+function base64Url(input: string): string {
+  return Buffer.from(input, 'utf8').toString('base64url')
+}
+
+function issueLocalToken(actorId: string, actorRole: string): string {
+  const issuer = process.env.WENYAN_JWT_ISSUER ?? 'wenyan.local'
+  const audience = process.env.WENYAN_JWT_AUDIENCE ?? 'wenyan-gateway'
+  const secret = process.env.WENYAN_JWT_SECRET ?? 'wenyan-local-jwt-secret'
+  const iat = Math.floor(Date.now() / 1000)
+  const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+  const payload = base64Url(
+    JSON.stringify({
+      sub: actorId,
+      role: actorRole,
+      iss: issuer,
+      aud: audience,
+      iat,
+      exp: iat + 3600,
+    }),
+  )
+  const sig = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url')
+  return `${header}.${payload}.${sig}`
 }
 
 async function query(state: string) {
@@ -45,7 +68,7 @@ async function query(state: string) {
 }
 
 async function stream() {
-  const res = await fetch(`${baseUrl}/stream`)
+  const res = await fetch(`${baseUrl}/stream/replay`)
   const json = await res.json()
   console.log(JSON.stringify(json, null, 2))
 }
@@ -125,7 +148,9 @@ async function auditVerify(args: string[]): Promise<void> {
 
 async function token(args: string[]): Promise<void> {
   if (args.includes('--local')) {
-    console.log(process.env.WENYAN_ACTOR_ID ?? 'local-operator')
+    const actorId = process.env.WENYAN_ACTOR_ID ?? 'local-operator'
+    const actorRole = process.env.WENYAN_ACTOR_ROLE ?? 'genesis_admin'
+    console.log(issueLocalToken(actorId, actorRole))
     return
   }
   throw new Error('token supports only --local')

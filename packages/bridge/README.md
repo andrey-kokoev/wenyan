@@ -1,4 +1,4 @@
-# @wenyan/bridge
+# @andrey-kokoev/wenyan-bridge
 
 Foreign protocol bridge runtime for Wenyan.
 
